@@ -9,7 +9,7 @@ from io import BytesIO
 from PIL import Image
 from hoshino import Service, priv
 from hoshino.modules.priconne import _pcr_data_duel
-from hoshino.modules.priconne import chara
+from hoshino.modules.priconne import chara_duel as chara
 from hoshino.typing import CQEvent
 from hoshino.util import DailyNumberLimiter
 import copy
@@ -1720,8 +1720,8 @@ async def add_girl(bot, ev: CQEvent):
         # 招募女友失败
         if random.random() < 0.4:
             losetext = random.choice(Addgirlfail)
-            msg = f'\n{losetext}\n您花费了{GACHA_COST}金币，但是没有约到新的女友。获得了200金币补偿。'
-            score_counter._add_score(gid, uid, 200)
+            msg = f'\n{losetext}\n您花费了{GACHA_COST}金币，但是没有约到新的女友。获得了{GACHA_COST_Fail}金币补偿。'
+            score_counter._add_score(gid, uid, GACHA_COST_Fail)
             score = score_counter._get_score(gid, uid)
             await bot.send(ev, msg, at_sender=True)
             return
@@ -1845,7 +1845,7 @@ async def add_girl(bot, ev: CQEvent):
         msg = f'您的金币不足哦。\n升级到{futurename}需要{needscore}金币'
         await bot.send(ev, msg, at_sender=True)
         return
-    
+    prestige = score_counter._get_prestige(gid,uid)
     if level > 5 :
         if prestige == None:
             score_counter._set_prestige(gid,uid,0)
