@@ -1655,7 +1655,7 @@ async def noblelogin(bot, ev: CQEvent):
     if duel._get_QC_CELE(gid) == 1:
      scoresum = scoresum * QD_Gold_Cele_Num
      SW2 = SW2 * QD_SW_Cele_Num
-     msg = f'\n{text1}\n签到成功！\n[庆典举办中]\n您领取了：\n\n{score1}金币(随机)和\n{score2}金币以及{SW2}声望({noblename}爵位)'
+     msg = f'\n{text1}\n签到成功！\n[庆典举办中]\n您领取了：\n\n{score1 * QD_Gold_Cele_Num}金币(随机)和\n{score2 * QD_Gold_Cele_Num}金币以及{SW2}声望({noblename}爵位)'
     else:
      msg = f'\n{text1}\n签到成功！\n您领取了：\n\n{score1}金币(随机)和\n{score2}金币以及{SW2}声望({noblename}爵位)'
     score_counter._add_prestige(gid,uid,SW2)
