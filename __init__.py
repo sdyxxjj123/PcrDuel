@@ -39,10 +39,11 @@ SHANGXIAN_SW = 500 #扩充女友上限，需要的声望值
 
 BREAK_UP_SWITCH = True #分手系统开关
 Zhuan_Need = 0.5 #转账所需的手续费比例
-Suo = 2 #梭哈额外获取的金币倍率
 WinSWBasics = 400 #赢了获得的基础声望
 LoseSWBasics = 150 #输了掉的基础声望
+
 Remake_allow = False #是否允许重开
+
 SW_COST = 500 #声望招募的声望需求量
 DJ_NEED_SW = 2500 #加冕称帝消耗的声望
 DJ_NEED_GOLD = 20000 #加冕称帝消耗的金币
@@ -53,6 +54,9 @@ GIFT_DAILY_LIMIT = 5 #每日购买礼物次数上限
 WAIT_TIME_CHANGE = 30 #礼物交换等待时间
 NEED_favor = 300 #成为妻子所需要的好感，为0表示关闭
 favor_reduce = 50 #当输掉女友时，损失的好感度
+
+Suo_allow = True #是否允许梭哈
+Suo = 2 #梭哈额外获取的金币倍率
 
 
 #这里是庆典设置区 ~~开关类，1为开，0为关~~
@@ -2565,7 +2569,12 @@ async def on_input_duel_score2(bot, ev: CQEvent):
     try:
         if duel_judger.get_on_off_support_status(ev.group_id):
             gid = ev.group_id
+            duel = DuelCounter()
             uid = ev.user_id
+            if Suo_allow != True:
+                msg = '管理员禁止梭哈。'
+                await bot.send(ev, msg, at_sender=True)
+                return
             score_counter = ScoreCounter2()
             match = ev['match']
             select_id = int(match.group(1))
@@ -3600,9 +3609,11 @@ async def ON_Cele_SWITCH(bot, ev: CQEvent):
     uid = ev.user_id
     if not priv.check_priv(ev, priv.SUPERUSER):
         await bot.finish(ev, '您无权开放庆典！', at_sender=True)
+    duel = DuelCounter()
+    if duel._get_SW_CELE(gid) == None:
+        await bot.finish(ev, '本群庆典未初始化，请先发"初始化本群庆典"初始化数据！', at_sender=True)
     match = (ev['match'])
     cele = (match.group(1))
-    duel = DuelCounter()
     if cele == '金币':
         QC_Data = duel._get_QC_CELE(gid)
         SUO_Data = duel._get_SUO_CELE(gid)
@@ -3661,6 +3672,8 @@ async def OFF_Cele_SWITCH(bot, ev: CQEvent):
     match = (ev['match'])
     cele = (match.group(1))
     duel = DuelCounter()
+    if duel._get_SW_CELE(gid) == None:
+        await bot.finish(ev, '本群庆典未初始化，请先发"初始化本群庆典"初始化数据！', at_sender=True)
     if cele == '金币':
         QC_Data = duel._get_QC_CELE(gid)
         SUO_Data = duel._get_SUO_CELE(gid)
