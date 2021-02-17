@@ -1648,7 +1648,7 @@ async def noblelogin(bot, ev: CQEvent):
     scoresum = score1+score2
     noblename = get_noblename(level)
     score = score_counter._get_score(gid, uid)  
-    if duel._get_QC_CELE == True:
+    if duel._get_QC_CELE(gid) == 1:
      scoresum = scoresum * QD_Gold_Cele_Num
      SW2 = SW2 * QD_SW_Cele_Num
      msg = f'\n{text1}\n签到成功！\n[庆典举办中]\n您领取了：\n\n{score1}金币(随机)和\n{score2}金币以及{SW2}声望({noblename}爵位)'
@@ -1673,17 +1673,17 @@ async def noblelogin(bot, ev: CQEvent):
     
 @sv.on_fullmatch('免费招募')
 async def noblelogin(bot, ev: CQEvent):
-   if duel._get_FREE_CELE != True:
+   gid = ev.group_id
+   uid = ev.user_id
+   duel = DuelCounter()  
+   if duel._get_FREE_CELE(gid) != 1:
     await bot.send(ev, '当前未开放免费招募庆典！', at_sender=True)
     return
    else:
-    gid = ev.group_id
-    uid = ev.user_id
     guid = gid, uid
     if not daily_free_limiter.check(guid):
         await bot.send(ev, '今天已经免费招募过了喔，明天再来吧。(免费招募次数每天0点刷新)', at_sender=True)
-        return
-    duel = DuelCounter()    
+        return 
     if duel._get_level(gid, uid) == 0:
         msg = '您还未在本群创建过贵族，请发送 创建贵族 开始您的贵族之旅。'
         await bot.send(ev, msg, at_sender=True)
@@ -2051,7 +2051,7 @@ async def add_girl(bot, ev: CQEvent):
     uid = ev.user_id
     duel = DuelCounter()
     score_counter = ScoreCounter2()
-    if duel._get_SW_CELE == False and duel._get_level(gid, uid) != 20:
+    if duel._get_SW_CELE(gid) != 1 and duel._get_level(gid, uid) != 20:
         msg = '目前不在限时开放声望招募期间，只有神能参与！'
         duel_judger.turn_off(ev.group_id)
         await bot.send(ev, msg, at_sender=True)
@@ -2257,7 +2257,7 @@ async def nobleduel(bot, ev: CQEvent):
     noblename1 = get_noblename(level1)
     level2 = duel._get_level(gid, id2)
     noblename2 = get_noblename(level2)
-    if duel._get_GOLD_CELE == True:
+    if duel._get_GOLD_CELE(gid) == 1:
      msg = f'''对方接受了决斗！    
 1号：[CQ:at,qq={id1}]
 爵位为：{noblename1}
@@ -2468,7 +2468,7 @@ async def nobleduel(bot, ev: CQEvent):
             if support_id == winnum:
                 winuid.append(uid)
                 #这里是赢家获得的金币结算，可以自己修改倍率。
-                if duel._get_GOLD_CELE == 1:
+                if duel._get_GOLD_CELE(gid) == 1:
                  winscore = support_score * WIN_NUM * Gold_Cele_Num
                 else:
                  winscore = support_score * WIN_NUM
@@ -2594,7 +2594,7 @@ async def on_input_duel_score2(bot, ev: CQEvent):
                 await bot.send(ev, msg, at_sender=True)
                 return
             else:
-             if duel._get_SUO_CELE == True:
+             if duel._get_SUO_CELE(gid) == 1:
                 input_score =  Suo * current_score * Suo_Cele_Num
                 duel_judger.add_support(gid, uid, select_id, input_score)
                 msg = f'梭哈支持{select_id}号{current_score}金币成功，[庆典举办中]胜利时，将获得相对于平常值{Suo*Suo_Cele_Num}倍的金币！'
@@ -3635,7 +3635,7 @@ async def ON_Cele_SWITCH(bot, ev: CQEvent):
         QC_Data = duel._get_QC_CELE(gid)
         SUO_Data = duel._get_SUO_CELE(gid)
         SW_Data = duel._get_SW_CELE(gid)
-        duel._initialization_CELE(gid,GC_Data,QC_Data,SUO_Data,1,FREE_Data)
+        duel._initialization_CELE(gid,GC_Data,QC_Data,SUO_Data,SW_Data,1)
         msg = f'已开启本群免费招募庆典，每日可免费招募{FREE_DAILY_LIMIT}次\n'
         await bot.send(ev, msg, at_sender=True)
         return
@@ -3644,7 +3644,7 @@ async def ON_Cele_SWITCH(bot, ev: CQEvent):
         QC_Data = duel._get_QC_CELE(gid)
         SUO_Data = duel._get_SUO_CELE(gid)
         FREE_Data = duel._get_FREE_CELE(gid)
-        duel._initialization_CELE(gid,GC_Data,QC_Data,SUO_Data,SW_Data,1)
+        duel._initialization_CELE(gid,GC_Data,QC_Data,SUO_Data,1,FREE_Data)
         msg = f'已开启本群限时开启声望招募庆典\n'
         await bot.send(ev, msg, at_sender=True)
         return
@@ -3693,7 +3693,7 @@ async def OFF_Cele_SWITCH(bot, ev: CQEvent):
         QC_Data = duel._get_QC_CELE(gid)
         SUO_Data = duel._get_SUO_CELE(gid)
         SW_Data = duel._get_SW_CELE(gid)
-        duel._initialization_CELE(gid,GC_Data,QC_Data,SUO_Data,0,FREE_Data)
+        duel._initialization_CELE(gid,GC_Data,QC_Data,SUO_Data,SW_Data,0)
         msg = f'\n已关闭本群免费招募庆典'
         await bot.send(ev, msg, at_sender=True)
         return
@@ -3702,7 +3702,7 @@ async def OFF_Cele_SWITCH(bot, ev: CQEvent):
         QC_Data = duel._get_QC_CELE(gid)
         SUO_Data = duel._get_SUO_CELE(gid)
         FREE_Data = duel._get_FREE_CELE(gid)
-        duel._initialization_CELE(gid,GC_Data,QC_Data,SUO_Data,SW_Data,0)
+        duel._initialization_CELE(gid,GC_Data,QC_Data,SUO_Data,0,FREE_Data)
         msg = f'\n已关闭本群限时声望招募庆典'
         await bot.send(ev, msg, at_sender=True)
         return
