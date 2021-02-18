@@ -1,13 +1,17 @@
-# 注意
-### 请注意，Git不包含魔改数据库文件，DLC数据文件，需要到群内自行下载。
+# Warning 警告！
+### 这是一个测试分支，它拥有更快的更新速度，但可能包含了大量的测试代码和自用代码，需要您自行分辨
+**不建议您直接git clone本分支，更建议您比照代码自行进行修改**
+### Git不包含魔改数据库文件，DLC数据文件，需要到Releases中自行下载。
 ### 有部分人问如何分离unit目录，如果您是使用我的魔改版，您可以自行到chara_duel中修改，搜索unit，相信您能明白
 ### 如果您有任何问题，欢迎提issues！如果您对本游戏有好的想法，也可以提，可能的话我会并入主分支亦或是为您开放一个单独的分支
 ### 我只是在原版基础上进行了一些粗陋的改动，框架是由大佬编写的，在此感谢！
-#### 如果您git clone时过慢，也可以使用我自己的gitlab
-`git clone http://feite.asia:8099/sdyxxjj123/Pcr_Duel.git`
+#### 如果您确实需要git clone本分支，请使用
+`git clone -b test https://github.com/sdyxxjj123/PcrDuel.git`
+或`git clone http://feite.asia:8099/sdyxxjj123/Pcr_Duel.git`
 #### 如果您Releases下载过慢，更推荐去群内或者百度云下载
 
-
+## 测试分支与目前主分支的区别
+测试分支目前与主分支处于同步状态
 
 
 ## 原版注意事项
