@@ -4,7 +4,7 @@
 ### 如果您有任何问题，欢迎提issues！如果您对本游戏有好的想法，也可以提，可能的话我会并入主分支亦或是为您开放一个单独的分支
 ### 我只是在原版基础上进行了一些粗陋的改动，框架是由大佬编写的，在此感谢！
 #### 如果您git clone时过慢，也可以使用我自己的gitlab
-`git clone http://feite.asia:8099/sdyxxjj123/Pcr_Duel.git`
+`git clone http://feite.asia:8100/sdyxxjj123/Pcr_Duel.git`
 #### 数据库，插件，DLC包都可以在Releases中下载，包括一键包，如果您Releases下载过慢，更推荐去群内或者百度云下载
 #### Releases可能不是最新的！
 
