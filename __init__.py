@@ -41,10 +41,17 @@ SHANGXIAN_SW = 500 #扩充女友上限，需要的声望值
 SW_COST = 500 #声望招募的声望需求量
 BREAK_UP_SWITCH = True #分手系统开关
 Remake_allow = True #是否允许重开
+Remake_LIMIT = 1 #一天最多允许重开的次数
+JiaoYi_NEED = 0.5 #女友交易所需要的手续费
+JiaoYi_LIMIT = 1 #一天进行的女友交易次数上限
 #转账部分
 Zhuan_Need = 0.5 #转账所需的手续费比例
-Zhuan_DAILY_LIMIT = 500000 #每日转账金币上限（扣除手续费前）
+Zhuan_DAILY_LIMIT = 50000 #每日转账金币上限（扣除手续费前）
 Zhuan_Low_LIMIT = 10000 #最低转账额度（扣除手续费前）
+#声望兑换部分
+SW_TO_GOLD = 50 #1声望兑换的金币数
+SW_DAILY_LIMIT = 400 #每日使用声望兑换的最大额度
+
 #胜负声望部分
 WinSWBasics = 400 #赢了获得的基础声望
 LoseSWBasics = 150 #输了掉的基础声望
@@ -62,13 +69,13 @@ DATE_DAILY_LIMIT = 1 #每天女友约会次数上限
 GIFT_DAILY_LIMIT = 5 #每日购买礼物次数上限 
 WAIT_TIME_CHANGE = 30 #礼物交换等待时间
 #第一名妻子部分
-NEED_favor = 0 #成为妻子所需要的好感，为0表示关闭
+NEED_favor = 200 #成为妻子所需要的好感，为0表示关闭
 favor_reduce = 50 #当输掉女友时，损失的好感度
 marry_NEED_Gold = 30000 #结婚所需要的金币
 marry_NEED_SW = 1000 #结婚所需的声望
 #第二名妻子部分
 Allow_wife2 = True #是否允许第二名妻子
-NEED2_favor = 0 #成为第二名妻子所需要的好感，为0表示关闭
+NEED2_favor = 200 #成为第二名妻子所需要的好感，为0表示关闭
 marry2_NEED_Gold = 30000 #结婚所需要的金币
 marry2_NEED_SW = 1000 #结婚所需的声望
 #梭哈/支持杂项
@@ -685,7 +692,9 @@ daily_date_limiter = DailyAmountLimiter("date", DATE_DAILY_LIMIT, RESET_HOUR)
 daily_gift_limiter = DailyAmountLimiter("gift", GIFT_DAILY_LIMIT, RESET_HOUR)
 daily_zhuan_limiter = DailyAmountLimiter("zhuan", Zhuan_DAILY_LIMIT, RESET_HOUR)
 daily_godfree_limiter = DailyAmountLimiter("godfree", GOD_FREE_DAILY_LIMIT, RESET_HOUR)
-
+daily_Remake_limiter = DailyAmountLimiter("Remake", Remake_LIMIT, RESET_HOUR)
+daily_SWTOGOLD_limiter = DailyAmountLimiter("sw", SW_DAILY_LIMIT, RESET_HOUR)
+daily_JiaoYi_limiter = DailyAmountLimiter("JY", JiaoYi_LIMIT, RESET_HOUR)
 # 用于与赛跑金币互通
 class ScoreCounter2:
     def __init__(self):
@@ -710,7 +719,7 @@ class ScoreCounter2:
             current_score = self._get_score(gid, uid)
             conn = self._connect()
             conn.execute("INSERT OR REPLACE INTO SCORECOUNTER (GID,UID,SCORE) \
-                                VALUES (?,?,?)", (gid, uid, current_score + score))
+                                VALUES (?,?,?)", (gid, uid, int(current_score + score)))
             conn.commit()
         except:
             raise Exception('更新表发生错误')
@@ -818,6 +827,7 @@ class DuelCounter:
         self._create_SWITCH()
         self._create_weapon()
         self._create_WLC()
+        self._create_bantable()
     def _connect(self):
         return sqlite3.connect(DUEL_DB_PATH)
 
@@ -1052,7 +1062,35 @@ class DuelCounter:
                 "INSERT OR REPLACE INTO WEAPON (GID, WEAPON) VALUES (?, ?)",
                 (gid, weapon),
             )
+#封号部分
+    def _create_bantable(self):
+        try:
+            self._connect().execute('''CREATE TABLE IF NOT EXISTS BANID
+                          (GID             INT    NOT NULL,
+                           UID             INT    NOT NULL,
+                           BANNUM           INT    NOT NULL,
+                           PRIMARY KEY(GID, UID));''')
+        except:
+            raise Exception('创建BAN表发生错误')
+    
+    def _get_BAN(self,gid,uid):
+        with self._connect() as conn:
+            r = conn.execute("SELECT BANNUM FROM BANID WHERE GID=? AND UID=?", (gid,uid)).fetchone()
+            return 0 if r is None else r[0]
             
+    def _reduce_BAN(self, gid, uid):
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO BANID (GID, UID, BANNUM) VALUES (?, ?, ?)",
+                (gid, uid, 0),
+            )
+
+    def _set_BAN(self, gid, uid):
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO BANID (GID, UID, BANNUM) VALUES (?, ?, ?)",
+                (gid, uid, 1),
+            )
 #胜负场部分
     def _create_WLC(self):
         try:
@@ -1675,6 +1713,7 @@ async def nobleduel(bot, ev: CQEvent):
     if duel_jiaoyier.get_jiaoyi_on_off_status(ev.group_id):
         await bot.send(ev, "此轮交易还没结束，请勿重复使用指令。")
         return
+    
     gid = ev.group_id
     match = ev['match']
     try:
@@ -1685,6 +1724,13 @@ async def nobleduel(bot, ev: CQEvent):
     num = int(match.group(1))
     id1 = ev.user_id
     duel = DuelCounter()
+    guid = gid,id1
+    if duel._get_BAN(gid,id1) == 1:
+       await bot.send(ev, '您的账号触发安全机制，已被封停，请联系管理员处理！', at_sender=True)
+       return
+    if not daily_JiaoYi_limiter.check(guid):
+       await bot.send(ev, '您已超出今日女友交易次数上限！', at_sender=True)
+       return
     score_counter = ScoreCounter2()
     level2 = duel._get_level(gid, id2)
     noblename = get_noblename(level2)
@@ -1781,7 +1827,7 @@ async def nobleduel(bot, ev: CQEvent):
         return
         
     duel = DuelCounter()
-    get_num=num*0.95
+    get_num=num*(1-JiaoYi_NEED)
     score_counter._add_score(gid, id2, get_num)
     score = score_counter._get_score(gid, id2)
     
@@ -1792,7 +1838,8 @@ async def nobleduel(bot, ev: CQEvent):
     duel_jiaoyier.turn_jiaoyioff(gid)
     nvmes = get_nv_icon(cid)
     score_counter._reduce_prestige(gid,id1,num2)
-    msg = f'[CQ:at,qq={id1}]以{num}金币的价格购买了[CQ:at,qq={id2}]的女友{c.name}，交易成功\n[CQ:at,qq={id1}]您失去了{num}金币，{num2}声望，剩余{scoreyou}金币\n[CQ:at,qq={id2}]扣除5%手续费，您能得到了{get_num}金币，剩余{score}金币。{nvmes}'
+    daily_JiaoYi_limiter.increase(guid)  
+    msg = f'[CQ:at,qq={id1}]以{num}金币的价格购买了[CQ:at,qq={id2}]的女友{c.name}，交易成功\n[CQ:at,qq={id1}]您失去了{num}金币，{num2}声望，剩余{scoreyou}金币\n[CQ:at,qq={id2}]扣除{JiaoYi_NEED*100}%手续费，您能得到了{get_num}金币，剩余{score}金币。{nvmes}'
     await bot.send(ev, msg)
 
 
@@ -1836,11 +1883,13 @@ async def noblelogin(bot, ev: CQEvent):
     gid = ev.group_id
     uid = ev.user_id
     guid = gid, uid
+    duel = DuelCounter()
+    if duel._get_BAN(gid,uid) == 1:
+        await bot.send(ev, '您的账号触发安全机制，已被封停，请联系管理员处理！', at_sender=True)
+        return
     if not daily_sign_limiter.check(guid):
         await bot.send(ev, '今天已经签到过了哦，明天再来吧。', at_sender=True)
         return
-    duel = DuelCounter()
-    
     if duel._get_level(gid, uid) == 0:
         msg = '您还未在本群创建过贵族，请发送 创建贵族 开始您的贵族之旅。'
         await bot.send(ev, msg, at_sender=True)
@@ -1910,6 +1959,9 @@ async def noblelogin(bot, ev: CQEvent):
    gid = ev.group_id
    uid = ev.user_id
    duel = DuelCounter()
+   if duel._get_BAN(gid,uid) == 1:
+        await bot.send(ev, '您的账号触发安全机制，已被封停，请联系管理员处理！', at_sender=True)
+        return
    if duel._get_FREE_CELE(gid) != 1 and duel._get_level(gid, uid) != 20:
     await bot.send(ev, '当前未开放免费招募庆典！', at_sender=True)
     return
@@ -1960,7 +2012,7 @@ async def noblelogin(bot, ev: CQEvent):
                 return
 
         # 招募女友成功
-        daily_free_limiter.increase(guid)  
+        daily_free_limiter.increase(guid)
         cid = random.choice(newgirllist)
         c = chara.fromid(cid)
         nvmes = get_nv_icon(cid)
@@ -2020,6 +2072,9 @@ async def add_noble(bot, ev: CQEvent):
         if duel._get_level(gid, uid) != 0:
             msg = '您已经在本群创建过贵族了，请发送 查询贵族 查询。'
             await bot.send(ev, msg, at_sender=True)
+            return
+        if duel._get_BAN(gid,uid) == 1:
+            await bot.send(ev, '您的账号触发安全机制，已被封停，请联系管理员处理！', at_sender=True)
             return
         
         #判定本群女友是否已空，如果空则分配一个复制人可可萝。
@@ -2104,7 +2159,7 @@ async def inquire_noble(bot, ev: CQEvent):
     if Losenum == 0:
         winprobability = 100
     else:
-        winprobability = (Winnum / (Winnum+Losenum))*100
+        winprobability = round((Winnum / (Winnum+Losenum))*100 ,2)
     if Winnum == 0:
         winprobability = 0
     prestige = score_counter._get_prestige(gid,uid)
@@ -2126,7 +2181,7 @@ async def inquire_noble(bot, ev: CQEvent):
   胜率为{winprobability}%
   您共可拥有{girlnum}名女友
   您目前没有女友。
-  发送[贵族约会]
+  发送[贵族舞会]
   可以招募女友哦。
   
 ╚                          ╝
@@ -2246,7 +2301,8 @@ async def inquire_noble(bot, ev: CQEvent):
     
 ╚                          ╝
 '''
-
+        if duel._get_BAN(gid,uid) == 1:
+            msg += '\n<该账号被封停中,请联系管理员处理>'
         await bot.send(ev, msg, at_sender=True)
 
 
@@ -2260,6 +2316,9 @@ async def add_girl(bot, ev: CQEvent):
         msg = '现在正在决斗中哦，请决斗后再参加舞会吧。'
         await bot.send(ev, msg, at_sender=True)
         return            
+    if duel._get_BAN(gid,uid) == 1:
+        await bot.send(ev, '您的账号触发安全机制，已被封停，请联系管理员处理！', at_sender=True)
+        return
     if duel._get_level(gid, uid) == 20:
         msg = '你已成神，神不能招募女友。'
         await bot.send(ev, msg, at_sender=True)
@@ -2334,6 +2393,9 @@ async def add_girl(bot, ev: CQEvent):
     uid = ev.user_id
     duel = DuelCounter()
     score_counter = ScoreCounter2()
+    if duel._get_BAN(gid,uid) == 1:
+        await bot.send(ev, '您的账号触发安全机制，已被封停，请联系管理员处理！', at_sender=True)
+        return
     if duel._get_SW_CELE(gid) != 1 and duel._get_level(gid, uid) != 20:
         msg = '目前不在限时开放声望招募期间，只有神能参与！'
         duel_judger.turn_off(ev.group_id)
@@ -2482,6 +2544,14 @@ async def nobleduel(bot, ev: CQEvent):
     prestige2 = score_counter._get_prestige(gid,id2)
     level1 = duel._get_level(gid, id1)
     level2 = duel._get_level(gid, id2)
+    if duel._get_BAN(gid,id1) == 1:
+        await bot.send(ev, '您的账号触发安全机制，已被封停，请联系管理员处理！', at_sender=True)
+        duel_judger.turn_off(ev.group_id)
+        return
+    if duel._get_BAN(gid,id2) == 1:
+        await bot.send(ev, '对方的账号触发安全机制，已被封停，无法与其决斗！', at_sender=True)
+        duel_judger.turn_off(ev.group_id)
+        return
     if id2 == id1:
         await bot.send(ev, "不能和自己决斗！", at_sender=True)
         duel_judger.turn_off(ev.group_id)
@@ -2915,8 +2985,8 @@ async def on_input_duel_score2(bot, ev: CQEvent):
                 await bot.send(ev, msg, at_sender=True)
                 return
                 # 检查金币是否足够下注
-            if score_counter._judge_score(gid, uid, input_score) == 0:
-                msg = '您的金币不足。'
+            if current_score == 0:
+                msg = '您的金币为0，不能梭哈。'
                 await bot.send(ev, msg, at_sender=True)
                 return
             else:
@@ -3021,6 +3091,7 @@ async def cheat_score(bot, ev: CQEvent):
     uid = ev.user_id
     guid = gid, uid
     match = ev['match']
+    duel = DuelCounter()
     try:
         id = int(match.group(1))
     except ValueError:
@@ -3028,11 +3099,13 @@ async def cheat_score(bot, ev: CQEvent):
     except:
         await bot.finish(ev, '参数格式错误')
     num = int(match.group(2))
+    if duel._get_BAN(gid,uid) == 1:
+        await bot.send(ev, '您的账号触发安全机制，已被封停，请联系管理员处理！', at_sender=True)
+        return
     if num < Zhuan_Low_LIMIT :
         await bot.finish(ev, f'低于转账最小限额！最少转出{Zhuan_Low_LIMIT}\n您今天还剩{Zhuan_DAILY_LIMIT - daily_zhuan_limiter.checks(guid)}金币可以转出！', at_sender=True)
     if num > Zhuan_DAILY_LIMIT - daily_zhuan_limiter.checks(guid) :
         await bot.finish(ev, f'超出转账最大限额！您今天还剩{Zhuan_DAILY_LIMIT - daily_zhuan_limiter.checks(guid)}金币可以转出！', at_sender=True)
-    duel = DuelCounter()
     score_counter = ScoreCounter2()
     if duel._get_level(gid, id) == 0:
         await bot.finish(ev, '该用户还未在本群创建贵族哦。', at_sender=True)
@@ -3151,9 +3224,16 @@ async def reset_chara(bot, ev: CQEvent):
 async def reset_CK(bot, ev: CQEvent):
         gid = ev.group_id
         uid = ev.user_id
+        guid = gid, uid 
         if Remake_allow == False:
          await bot.finish(ev, '管理员不允许自行重开。', at_sender=True)
+        if not daily_Remake_limiter.check(guid):
+            await bot.send(ev, '一天最多重开一次！', at_sender=True)
+            return 
         duel = DuelCounter()
+        if duel._get_BAN(gid,uid) == 1:
+            await bot.send(ev, '您的账号触发安全机制，已被封停，请联系管理员处理！', at_sender=True)
+            return
         score_counter = ScoreCounter2()
         prestige = score_counter._get_prestige(gid,uid)
         if prestige < 0:
@@ -3171,6 +3251,7 @@ async def reset_CK(bot, ev: CQEvent):
         duel._delete_queen_owner(gid,queen)
         duel._delete_queen2_owner(gid,queen2)
         duel._set_level(gid, uid, 0)    
+        daily_Remake_limiter.increase(guid)
         await bot.finish(ev, f'已清空您的女友和贵族等级，金币等。', at_sender=True)
 
 @sv.on_prefix('分手')
@@ -3330,6 +3411,9 @@ async def marry_queen(bot, ev: CQEvent):
     level = duel._get_level(gid, uid)
     score_counter = ScoreCounter2()  
     prestige = score_counter._get_prestige(gid,uid)
+    if duel._get_BAN(gid,uid) == 1:
+        await bot.send(ev, '您的账号触发安全机制，已被封停，请联系管理员处理！', at_sender=True)
+        return
     if prestige == None:
         await bot.finish(ev, '您还未开启声望系统哦。', at_sender=True)    
     if level <= 7:
@@ -3379,6 +3463,9 @@ async def marry_queen2(bot, ev: CQEvent):
     level = duel._get_level(gid, uid)
     score_counter = ScoreCounter2()  
     prestige = score_counter._get_prestige(gid,uid)
+    if duel._get_BAN(gid,uid) == 1:
+        await bot.send(ev, '您的账号触发安全机制，已被封停，请联系管理员处理！', at_sender=True)
+        return
     if prestige == None:
         await bot.finish(ev, '您还未开启声望系统哦。', at_sender=True)    
     if duel._search_queen(gid,uid) == 0 :
@@ -3456,6 +3543,9 @@ async def daily_date(bot, ev: CQEvent):
     gid = ev.group_id
     uid = ev.user_id
     duel = DuelCounter()
+    if duel._get_BAN(gid,uid) == 1:
+            await bot.send(ev, '您的账号触发安全机制，已被封停，请联系管理员处理！', at_sender=True)
+            return
     if not args:
         await bot.finish(ev, '请输入贵族约会+女友名。', at_sender=True)
     name = args[0]
@@ -3522,6 +3612,9 @@ async def give_gift(bot, ev: CQEvent):
     gid = ev.group_id
     uid = ev.user_id
     duel = DuelCounter()
+    if duel._get_BAN(gid,uid) == 1:
+        await bot.send(ev, '您的账号触发安全机制，已被封停，请联系管理员处理！', at_sender=True)
+        return
     if gift_change.get_on_off_giftchange_status(ev.group_id):
         await bot.finish(ev, "有正在进行的礼物交换，礼物交换结束再来送礼物吧。")    
     if len(args)!=2:
@@ -3558,6 +3651,9 @@ async def buy_gift(bot, ev: CQEvent):
     if duel_judger.get_on_off_status(ev.group_id):
         msg = '现在正在决斗中哦，请决斗后再来买礼物吧。'
         await bot.finish(ev, msg, at_sender=True)
+    if duel._get_BAN(gid,uid) == 1:
+        await bot.send(ev, '您的账号触发安全机制，已被封停，请联系管理员处理！', at_sender=True)
+        return
     score = score_counter._get_score(gid, uid)
     if score < 300:
         await bot.finish(ev, '购买礼物需要300金币，您的金币不足哦。', at_sender=True) 
@@ -3962,18 +4058,19 @@ async def cheat_score(bot, ev: CQEvent):
     num = int(match.group(1))
     duel = DuelCounter()
     score_counter = ScoreCounter2()
-    prestige = score_counter._get_prestige(gid,uid)
+    guid = gid, uid
+    prestige = score_counter._get_prestige(gid,uid)   
+    if num > SW_DAILY_LIMIT - daily_SWTOGOLD_limiter.checks(guid) :
+        await bot.finish(ev, f'超出兑换最大限额！您今天还剩{SW_DAILY_LIMIT - daily_SWTOGOLD_limiter.checks(guid)}声望可以兑换！', at_sender=True) 
     if duel._get_level(gid, uid) == 0:
         await bot.finish(ev, '您还没有在本群创建贵族哦。', at_sender=True)
     if prestige == None:
         await bot.finish(ev, '您未开启声望系统哦！。', at_sender=True)   
-    if num < 200:
-        await bot.finish(ev, '200声望起兑换哦！。', at_sender=True)
     score = score_counter._get_score(gid, uid)
     pay_score=num
-    num2 = num * 50
+    num2 = num * SW_TO_GOLD
     if prestige < pay_score:
-        msg = f'您的声望只有{score}，无法兑换哦。'
+        msg = f'您的声望只有{prestige}，无法兑换哦。'
         await bot.send(ev, msg, at_sender=True)
         return
     else:
@@ -3981,6 +4078,7 @@ async def cheat_score(bot, ev: CQEvent):
         score_counter._add_score(gid,uid,num2)
         scoreyou = score_counter._get_score(gid, uid)
         prestige = score_counter._get_prestige(gid,uid)
+        daily_SWTOGOLD_limiter.increase2(guid,num)
         msg = f'使用{num}声望兑换{num2}金币成功\n您的声望剩余{prestige}，金币为{scoreyou}。'
         await bot.send(ev, msg, at_sender=True)
 
@@ -4274,3 +4372,38 @@ async def give_gift(bot, ev: CQEvent):
     msg = f'\n{c.name}:"感觉回忆涌现出来了呢"\n你和{c.name}的好感上升了300点\n她现在对你的好感是{current_favor}点\n你们现在的关系是{relationship}\n{c.icon.cqcode}'
     await bot.send(ev, msg, at_sender=True)    
 
+@sv.on_rex(f'^封停群(.*)的(.*)号$')
+async def set_ban(bot, ev: CQEvent):
+    if not priv.check_priv(ev, priv.SUPERUSER):
+        return
+    match = ev['match']
+    try:
+        gid = int(match.group(1))
+    except:
+        await bot.finish(ev, '参数格式错误')
+    try:
+        uid = int(match.group(2))
+    except:
+        await bot.finish(ev, '参数格式错误')
+    duel = DuelCounter()
+    duel._set_BAN(gid,uid)
+    msg = f'已封停群{gid}的{uid}。\n'
+    await bot.send(ev, msg)
+    
+@sv.on_rex(f'^解封群(.*)的(.*)号$')
+async def reduce_ban(bot, ev: CQEvent):
+    if not priv.check_priv(ev, priv.SUPERUSER):
+        return
+    match = ev['match']
+    try:
+        gid = int(match.group(1))
+    except:
+        await bot.finish(ev, '参数格式错误')
+    try:
+        uid = int(match.group(2))
+    except:
+        await bot.finish(ev, '参数格式错误')
+    duel = DuelCounter()
+    duel._reduce_BAN(gid,uid)
+    msg = f'已解封群{gid}的{uid}。\n'
+    await bot.send(ev, msg)
