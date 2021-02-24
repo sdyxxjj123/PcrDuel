@@ -1064,7 +1064,7 @@ class DuelCounter:
     def _get_SWITCH2(self, gid):
         with self._connect() as conn:
             r = conn.execute("SELECT NUM FROM SWITCHCF WHERE GID=?", (gid,)).fetchone()
-            return None if r is None else r[0]
+            return 0 if r is None else r[0]
             
     def _set_SWITCH2(self, gid, num):
         with self._connect() as conn:
@@ -4678,8 +4678,9 @@ async def clock():
          DayS = duel._get_TOTAL(gid,uid) #获取连续多少天不决斗
          level = duel._get_level(gid,uid)
          if level >=10 and Game == 0: #如果需要连续多少天不决斗惩罚在这改
-            duel._TOTAL_ADD(gid,uid) #增加一天未决斗天数
-            #惩罚内容
+           duel._TOTAL_ADD(gid,uid) #增加一天未决斗天数
+           #惩罚内容
+           if Days >= 7:
             while(n):
              r = 0 #避免特殊条件下死循环
              cidlist = duel._get_cards(gid, uid)
