@@ -5,6 +5,7 @@ import random
 import sqlite3
 import math
 from datetime import datetime, timedelta
+import pytz
 from io import BytesIO
 from PIL import Image
 from hoshino import Service, priv
@@ -14,8 +15,11 @@ from hoshino.typing import CQEvent
 from hoshino.util import DailyNumberLimiter
 import copy
 import json
+import nonebot
 from nonebot import on_command, on_request
 from hoshino import sucmd
+from nonebot import get_bot
+from hoshino.typing import NoticeSession
 
 sv = Service('pcr-duel', enable_on_default=True)
 DUEL_DB_PATH = os.path.expanduser('~/.hoshino/pcr_duel.db')
@@ -33,6 +37,7 @@ RESET_HOUR = 0  # 每日使用次数的重置时间，0代表凌晨0点，1代�
 GACHA_COST = 500  # 抽老婆需求
 GACHA_COST_Fail = 200 #抽老婆失败补偿量
 ZERO_GET_AMOUNT = 150  # 没钱补给量
+ZERO_GET_LIMIT = 3 #领金币每日次数限制
 WIN_NUM = 2 #下注获胜赢得的倍率
 #女友部分
 SHANGXIAN_NUM = 100000 #增加女友上限所需金币
@@ -53,7 +58,7 @@ SW_TO_GOLD = 50 #1声望兑换的金币数
 SW_DAILY_LIMIT = 400 #每日使用声望兑换的最大额度
 
 #胜负声望部分
-WinSWBasics = 400 #赢了获得的基础声望
+WinSWBasics = 300 #赢了获得的基础声望
 LoseSWBasics = 150 #输了掉的基础声望
 #签到部分
 scoreLV = 300 #每日根据等级获得的金币（等级*参数）
@@ -70,7 +75,8 @@ GIFT_DAILY_LIMIT = 5 #每日购买礼物次数上限
 WAIT_TIME_CHANGE = 30 #礼物交换等待时间
 #第一名妻子部分
 NEED_favor = 200 #成为妻子所需要的好感，为0表示关闭
-favor_reduce = 50 #当输掉女友时，损失的好感度
+favor_reduce_NEED = 50 #当好感度高于多少时，输扣好感度
+favor_reduce = 20 #当输掉女友时，损失的好感度
 marry_NEED_Gold = 30000 #结婚所需要的金币
 marry_NEED_SW = 1000 #结婚所需的声望
 #第二名妻子部分
@@ -107,15 +113,15 @@ SW_add = 0 #群庆典初始化时，是否开启无限制等级声望招募
 
 FILE_PATH = os.path.dirname(__file__)#用于加载dlcjson
 LEVEL_GIRL_NEED = {
-        "1": 2,
-        "2": 3,
-        "3": 4,
-        "4": 6,
-        "5": 8,
-        "6": 10,
-        "7": 11,
-        "8": 13,
-        "9": 15,
+        "1": 1,
+        "2": 2,
+        "3": 3,
+        "4": 5,
+        "5": 7,
+        "6": 9,
+        "7": 10,
+        "8": 12,
+        "9": 14,
         "10": 16,
         "20": 99
     } # 升级所需要的老婆，格式为["等级“: 需求]
@@ -178,7 +184,8 @@ GIFT_DICT = {
         "小裙子"  :6,
         "热牛奶"  :7,
         "书"      :8,
-        "鲜花"    :9  
+        "鲜花"    :9,
+        "公主之心" :10
     }  
 
 GIFTCHOICE_DICT={
@@ -695,6 +702,7 @@ daily_godfree_limiter = DailyAmountLimiter("godfree", GOD_FREE_DAILY_LIMIT, RESE
 daily_Remake_limiter = DailyAmountLimiter("Remake", Remake_LIMIT, RESET_HOUR)
 daily_SWTOGOLD_limiter = DailyAmountLimiter("sw", SW_DAILY_LIMIT, RESET_HOUR)
 daily_JiaoYi_limiter = DailyAmountLimiter("JY", JiaoYi_LIMIT, RESET_HOUR)
+daily_ZERO_limiter = DailyAmountLimiter("zero", ZERO_GET_LIMIT, RESET_HOUR)
 # 用于与赛跑金币互通
 class ScoreCounter2:
     def __init__(self):
@@ -825,9 +833,11 @@ class DuelCounter:
         self._create_favortable()
         self._create_gifttable()
         self._create_SWITCH()
+        self._create_SWITCH2()
         self._create_weapon()
         self._create_WLC()
         self._create_bantable()
+        self._create_DayDuel()
     def _connect(self):
         return sqlite3.connect(DUEL_DB_PATH)
 
@@ -1041,6 +1051,27 @@ class DuelCounter:
                 "INSERT OR REPLACE INTO SWITCH (GID, GC, QC, SUO, SW, FREE) VALUES (?, ?, ?, ?, ?, ?)",
                 (gid, GC, QC, SUO, SW, FREE),
             )
+#群惩罚开关部分
+    def _create_SWITCH2(self):
+        try:
+            self._connect().execute('''CREATE TABLE IF NOT EXISTS SWITCHCF
+                          (GID             INT    NOT NULL,
+                           NUM             INT    NULL,
+                           PRIMARY KEY(GID));''')
+        except:
+            raise Exception('创建开关表发生错误')
+            
+    def _get_SWITCH2(self, gid):
+        with self._connect() as conn:
+            r = conn.execute("SELECT NUM FROM SWITCHCF WHERE GID=?", (gid,)).fetchone()
+            return None if r is None else r[0]
+            
+    def _set_SWITCH2(self, gid, num):
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO SWITCHCF (GID, NUM) VALUES (?, ?)",
+                (gid, num),
+            )
 #武器部分
     def _create_weapon(self):
         try:
@@ -1172,6 +1203,84 @@ class DuelCounter:
             conn.commit()
         except:
             raise Exception('更新表发生错误')
+            
+    def _WLC_Remake(self, gid, uid):
+        try:
+            conn = self._connect()
+            conn.execute("INSERT OR REPLACE INTO WLC (GID,UID,WIN,LOST,ADMIT) \
+                                VALUES (?,?,?,?,?)", (gid, uid, 0, 0, 0))
+            conn.commit()
+        except:
+            raise Exception('更新表发生错误')
+            
+#每日不决斗扣除女友部分
+    def _get_gid_list(self):
+        with self._connect() as conn:
+            r = conn.execute(
+                "SELECT DISTINCT(GID) FROM LEVELTABLE").fetchall()
+            return [g[0] for g in r] if r else {}
+    
+    def _get_uid_list(self, gid):
+        try:
+            r = self._connect().execute("SELECT DISTINCT(UID) FROM LEVELTABLE WHERE GID=? ", (gid,)).fetchall()
+            return [u[0] for u in r] if r else {}
+        except:
+            raise Exception('查找uid表发生错误')
+            
+    def _create_DayDuel(self):
+        try:
+            self._connect().execute('''CREATE TABLE IF NOT EXISTS DAYDUEL
+                          (GID             INT    NOT NULL,
+                           UID             INT    NOT NULL,
+                           DALIY            INT    NOT NULL,
+                           TOTAL           INT    NOT NULL,
+                           PRIMARY KEY(GID,UID));''')
+        except:
+            raise Exception('创建每日决斗表发生错误')
+            
+    def _DALIY_add(self, gid, uid):
+        try:
+            conn = self._connect()
+            conn.execute("INSERT OR REPLACE INTO DAYDUEL (GID,UID,DALIY,TOTAL) \
+                                VALUES (?,?,?,?)", (gid, uid, 1, 0))
+            conn.commit()
+        except:
+            raise Exception('更新表发生错误')
+            
+    def _get_DALIY(self, gid, uid):
+        try:
+            r = self._connect().execute("SELECT DALIY FROM DAYDUEL WHERE GID=? AND UID=?", (gid, uid)).fetchone()
+            return 0 if r is None else r[0]
+        except:
+            raise Exception('查找决斗场次发生错误')
+    
+    def _get_TOTAL(self, gid, uid):
+        try:
+            r = self._connect().execute("SELECT TOTAL FROM DAYDUEL WHERE GID=? AND UID=?", (gid, uid)).fetchone()
+            return 0 if r is None else r[0]
+        except:
+            raise Exception('查找未决斗天数发生错误')
+            
+    def _DALIY_SET(self, gid, uid):
+        try:
+            TOTAL = self._get_TOTAL(gid, uid)
+            conn = self._connect()
+            conn.execute("INSERT OR REPLACE INTO DAYDUEL (GID,UID,DALIY,TOTAL) \
+                                VALUES (?,?,?,?)", (gid, uid, 0, TOTAL))
+            conn.commit()
+        except:
+            raise Exception('更新表发生错误')
+            
+    def _TOTAL_ADD(self, gid, uid):
+        try:
+            TOTAL = self._get_TOTAL(gid, uid)
+            conn = self._connect()
+            conn.execute("INSERT OR REPLACE INTO DAYDUEL (GID,UID,DALIY,TOTAL) \
+                                VALUES (?,?,?,?)", (gid, uid, 0, TOTAL + 1))
+            conn.commit()
+        except:
+            raise Exception('更新表发生错误')
+         
             
 #妻子部分
 
@@ -1943,6 +2052,8 @@ async def noblelogin(bot, ev: CQEvent):
         n = QD_Cele_gift_num
         while(n):
             select_gift = random.choice(list(GIFT_DICT.keys()))
+            while(select_gift == 10):
+                select_gift = random.choice(list(GIFT_DICT.keys()))
             gfid = GIFT_DICT[select_gift]
             duel._add_gift(gid,uid,gfid)
             msg +=f'\n随机获得了礼物[{select_gift}]'
@@ -2091,9 +2202,9 @@ async def add_noble(bot, ev: CQEvent):
         duel._set_level(gid, uid, 1)
         msg = f'\n创建贵族成功！\n您的初始爵位是平民\n可以拥有1名女友。\n初始金币为1000，初始声望为0\n{girlmsg}'
         score_counter = ScoreCounter2()
-        score_counter._set_prestige(gid,uid,0)
-        score_counter._add_score(gid, uid, 1000)
-        
+        score = score_counter._get_score(gid,uid)
+        if score == 0:
+         score_counter._add_score(gid, uid, 1000)
         await bot.send(ev, msg, at_sender=True)        
             
 
@@ -2745,9 +2856,9 @@ async def nobleduel(bot, ev: CQEvent):
         c = chara.fromid(selected_girl)
         #判断好感是否足够，足够则扣掉好感
         favor = duel._get_favor(gid,loser,selected_girl)
-        if favor>=favor_reduce:
+        if favor>=favor_reduce_NEED:
             duel._reduce_favor(gid,loser,selected_girl,favor_reduce)
-            msg = f'[CQ:at,qq={loser}]您输掉了贵族决斗，您与{c.name}的好感下降了50点。\n{c.icon.cqcode}'
+            msg = f'[CQ:at,qq={loser}]您输掉了贵族决斗，您与{c.name}的好感下降了{favor_reduce}点。\n{c.icon.cqcode}'
             await bot.send(ev, msg)            
         else:
             duel._delete_card(gid, loser, selected_girl)
@@ -2757,10 +2868,10 @@ async def nobleduel(bot, ev: CQEvent):
     else:
         #判断好感是否足够，足够则扣掉好感
         favor = duel._get_favor(gid,loser,selected_girl)    
-        if favor>=favor_reduce:
+        if favor>=favor_reduce_NEED:
             c = chara.fromid(selected_girl)
             duel._reduce_favor(gid,loser,selected_girl,favor_reduce)
-            msg = f'[CQ:at,qq={loser}]您输掉了贵族决斗，您与{c.name}的好感下降了50点。\n{c.icon.cqcode}'
+            msg = f'[CQ:at,qq={loser}]您输掉了贵族决斗，您与{c.name}的好感下降了{favor_reduce}点。\n{c.icon.cqcode}'
             await bot.send(ev, msg)      
             score_counter._add_score(gid, winner, 300)
             msg = f'[CQ:at,qq={winner}]您赢得了决斗，对方女友仍有一定好感。\n本次决斗获得了300金币。'
@@ -2846,13 +2957,16 @@ async def nobleduel(bot, ev: CQEvent):
         return
     
     support = duel_judger.get_support(gid)
-    #结算胜场，避免超时局刷胜场
+    #结算胜场，避免超时局刷胜场，记录今日是否已决斗
     duel._add_Win(gid,winner)
+    duel._DALIY_add(gid,loser)
+    duel._DALIY_add(gid,winner)
     winuid = []
-    supportmsg = '金币结算:\n'
+    supportmsg = '本轮决斗结束，没有人支持。'
     winnum = duel_judger.get_duelnum(gid, winner)
 
     if support != 0:
+        supportmsg = '金币结算:\n'
         for uid in support:
             support_id = support[uid][0]
             support_score = support[uid][1]
@@ -3012,7 +3126,11 @@ async def add_score(bot, ev: CQEvent):
         score_counter = ScoreCounter2()
         gid = ev.group_id
         uid = ev.user_id
-
+        guid = gid,uid
+        if not daily_ZERO_limiter.checks(guid):
+            msg = f'超出领取金币每日限制次数！每日限{ZERO_GET_LIMIT}次！'
+            await bot.send(ev, msg, at_sender=True)
+            return
         current_score = score_counter._get_score(gid, uid)
         if current_score == 0:
             score_counter._add_score(gid, uid, ZERO_GET_AMOUNT)
@@ -3092,6 +3210,9 @@ async def cheat_score(bot, ev: CQEvent):
     guid = gid, uid
     match = ev['match']
     duel = DuelCounter()
+    if duel_judger.get_on_off_status(ev.group_id):
+        msg = '现在正在决斗中哦，请决斗后再来转账吧。'
+        await bot.finish(ev, msg, at_sender=True)
     try:
         id = int(match.group(1))
     except ValueError:
@@ -3251,7 +3372,14 @@ async def reset_CK(bot, ev: CQEvent):
         duel._delete_queen_owner(gid,queen)
         duel._delete_queen2_owner(gid,queen2)
         duel._set_level(gid, uid, 0)    
+        score_counter._set_prestige(gid,uid,0)  
         daily_Remake_limiter.increase(guid)
+        duel._WLC_Remake(gid,uid)
+        i = 0
+        while(i<=10):
+            while(duel._get_gift_num(gid,uid,i)!=0):
+                duel._reduce_gift(gid,uid,i)
+            i += 1
         await bot.finish(ev, f'已清空您的女友和贵族等级，金币等。', at_sender=True)
 
 @sv.on_prefix('分手')
@@ -3585,6 +3713,10 @@ async def daily_date(bot, ev: CQEvent):
 
 def check_gift(cid,giftid):
     lastnum = cid%10
+    if giftid == 10:
+        favor = 20
+        text = random.choice(Gift10)
+        return favor, text
     if lastnum == giftid:
         favor = 10
         text = random.choice(Gift10)
@@ -3660,6 +3792,8 @@ async def buy_gift(bot, ev: CQEvent):
     if not daily_gift_limiter.check(guid):
         await bot.finish(ev, f'今天购买礼物已经超过{GIFT_DAILY_LIMIT}次了哦，明天再来吧。', at_sender=True)     
     select_gift = random.choice(list(GIFT_DICT.keys()))
+    while(select_gift == 10):
+        select_gift = random.choice(list(GIFT_DICT.keys()))
     gfid = GIFT_DICT[select_gift]
     duel._add_gift(gid,uid,gfid)
     msg = f'\n您花费了300金币，\n买到了[{select_gift}]哦，\n欢迎下次惠顾。'
@@ -3968,6 +4102,14 @@ async def get_user_card_dict(bot, group_id):
         d[m['user_id']] = m['card'] if m['card']!='' else m['nickname']
     return d        
 
+async def get_gid_dict(bot, group_id):
+    duel = DuelCounter()
+    glist = await bot.get_group_list()
+    d = {}
+    for m in mlist:
+        d[m['group_id']] = m['group_id']
+    return d   
+
 @sv.on_fullmatch(('金币排行榜', '金币排行'))
 async def Race_ranking(bot, ev: CQEvent):
     try:
@@ -4122,6 +4264,27 @@ async def GET_Cele(bot, ev: CQEvent):
     if duel._get_SW_CELE(gid) == 1:
        msg += f'当前正举办限时开启声望招募庆典'
     await bot.send(ev, msg, at_sender=True)
+    
+@sv.on_fullmatch('开启本群不决斗惩罚')
+async def ON_SWITCH2(bot, ev: CQEvent):
+    gid = ev.group_id
+    uid = ev.user_id
+    if not priv.check_priv(ev, priv.SUPERUSER):
+        await bot.finish(ev, '您的权限不足！', at_sender=True)
+    duel = DuelCounter()
+    duel._set_SWITCH2(gid,1)
+    await bot.finish(ev, '开启成功！', at_sender=True)
+
+@sv.on_fullmatch('关闭本群不决斗惩罚')
+async def OFF_SWITCH2(bot, ev: CQEvent):
+    gid = ev.group_id
+    uid = ev.user_id
+    if not priv.check_priv(ev, priv.SUPERUSER):
+        await bot.finish(ev, '您的权限不足！', at_sender=True)
+    duel = DuelCounter()
+    duel._set_SWITCH2(gid,0)
+    await bot.finish(ev, '关闭成功！', at_sender=True)
+    
     
 @sv.on_rex(r'^开启本群(金币|签到|梭哈倍率|免费招募|声望招募)庆典$')
 async def ON_Cele_SWITCH(bot, ev: CQEvent):
@@ -4296,8 +4459,6 @@ async def weaponchange(bot, ev: CQEvent):
     match = (ev['match'])
     weapon = (match.group(1))
     duel = DuelCounter()
-    if not priv.check_priv(ev, priv.SUPERUSER):
-        await bot.finish(ev, '您无权切换武器！', at_sender=True)
     if duel_judger.get_on_off_status(ev.group_id):
         msg = '现在正在决斗中哦，无法切换武器。'
         await bot.send(ev, msg, at_sender=True)
@@ -4319,6 +4480,36 @@ async def weaponchange(bot, ev: CQEvent):
         duel._set_weapon(gid,10)
     await bot.send(ev, msg, at_sender=True)
     
+@sv.on_rex(r'^发放补偿(.*)个(金币|声望|公主之心|)$')
+async def BC(bot, ev: CQEvent):   
+    if not priv.check_priv(ev, priv.SUPERUSER):
+        await bot.finish(ev, '无权进行该操作！', at_sender=True)
+    gid = ev.group_id
+    duel = DuelCounter()
+    score_dict = {}
+    match = (ev['match'])
+    score_counter = ScoreCounter2()
+    umlist = duel._get_uid_list(gid)
+    num = int(match.group(1))
+    Lei = (match.group(2))
+    for s in range(len(umlist)):
+        uid = int(umlist[s])
+        level = duel._get_level(gid,uid)
+        guid = gid, uid
+        if Lei == '金币':
+            score_counter._add_score(gid,uid,num)
+            msg = f'已为本群发放{num}金币补偿！'
+        if Lei == '声望':
+            score_counter._add_prestige(gid,uid,num)
+            msg = f'已为本群发放{num}声望补偿！'
+        if Lei == '公主之心':
+            msg = f'已为本群发放{num}公主之心补偿！'               
+            i = num
+            while(i):
+                duel._add_gift(gid,uid,10)
+                i= i-1
+        s += 1
+    await bot.send(ev, msg, at_sender=True)
 @sv.on_rex(f'^自定义武器装弹(\d+)发$')
 async def weaponchange2(bot, ev: CQEvent):
     gid = ev.group_id
@@ -4326,8 +4517,14 @@ async def weaponchange2(bot, ev: CQEvent):
     match = (ev['match'])
     n = int(match.group(1))
     duel = DuelCounter()
-    if not priv.check_priv(ev, priv.SUPERUSER):
-        await bot.finish(ev, '您无权切换武器！', at_sender=True)
+    if n % 2 != 0:
+        msg = '子弹数量必须是2的倍数喔！'
+        await bot.send(ev, msg, at_sender=True)
+        return 
+    if n == 0:
+        msg = '子弹数不能为0！'
+        await bot.send(ev, msg, at_sender=True)
+        return 
     if duel_judger.get_on_off_status(ev.group_id):
         msg = '现在正在决斗中哦，无法切换武器。'
         await bot.send(ev, msg, at_sender=True)
@@ -4407,3 +4604,122 @@ async def reduce_ban(bot, ev: CQEvent):
     duel._reduce_BAN(gid,uid)
     msg = f'已解封群{gid}的{uid}。\n'
     await bot.send(ev, msg)
+
+@sv.on_fullmatch('本群重开')
+async def Reset(bot, ev: CQEvent):   
+    if not priv.check_priv(ev, priv.SUPERUSER):
+        await bot.finish(ev, '无权进行该操作！', at_sender=True)
+    gid = ev.group_id
+    duel = DuelCounter()
+    score_dict = {}
+    score_counter = ScoreCounter2()
+    umlist = duel._get_uid_list(gid)
+    for s in range(len(umlist)):
+        uid = int(umlist[s])
+        level = duel._get_level(gid,uid)
+        if level == 20:
+           level = 11
+        guid = gid, uid     
+        prestige = score_counter._get_prestige(gid,uid)
+        cidlist = duel._get_cards(gid, uid)
+        for cid in cidlist:
+            duel._delete_card(gid, uid, cid)  
+        current_score = score_counter._get_score(gid, uid)
+        score_counter._reduce_score(gid, uid,current_score)
+        queen = duel._search_queen(gid,uid)
+        queen2 = duel._search_queen2(gid,uid)
+        duel._delete_queen_owner(gid,queen)
+        duel._delete_queen2_owner(gid,queen2)
+        duel._set_level(gid, uid, 0)
+        score_counter._set_prestige(gid,uid,0)        
+        score_counter._add_score(gid,uid,level * 5000)
+        score_counter._add_prestige(gid,uid,level * 300)
+        duel._WLC_Remake(gid,uid)
+        i = 0
+        while(i<=10):
+            while(duel._get_gift_num(gid,uid,i)!=0):
+                duel._reduce_gift(gid,uid,i)
+            i += 1
+        i = level
+        while(i):
+         duel._add_gift(gid,uid,10)
+         i= i-1
+        s += 1
+    await bot.finish(ev, '已完成重开！')
+    
+    
+@sv.scheduled_job('cron', hour='*',)
+async def clock():
+    now = datetime.now(pytz.timezone('Asia/Shanghai'))
+    if not now.hour == 5: #每天5点结算
+        return         
+    score_dict = {}
+    score_counter = ScoreCounter2()
+    duel = DuelCounter() 
+    bot = nonebot.get_bot()
+    i = 0
+    r = 0
+    glist = await bot.get_group_list()
+    d = {}
+    for m in glist:
+        d[m['group_id']] = m['group_id']
+    mlist = duel._get_gid_list()
+    for e in range(len(mlist)):
+     gid = int(mlist[e])       
+     if not gid in d:  #判断是否在群，避免100
+        continue
+     if duel._get_SWITCH2(gid) == 0: #判断是否开启惩罚，默认为关
+            continue
+     umlist = duel._get_uid_list(gid)
+     for s in range(len(umlist)):
+        uid = int(umlist[s])
+        if uid != '': #避免返回空uid
+         Game = duel._get_DALIY(gid,uid)
+         DayS = duel._get_TOTAL(gid,uid) #获取连续多少天不决斗
+         level = duel._get_level(gid,uid)
+         if level >=10 and Game == 0: #如果需要连续多少天不决斗惩罚在这改
+            duel._TOTAL_ADD(gid,uid) #增加一天未决斗天数
+            #惩罚内容
+            while(n):
+             r = 0 #避免特殊条件下死循环
+             cidlist = duel._get_cards(gid, uid)
+             selected_girl = random.choice(cidlist)
+             queen = duel._search_queen(gid,uid)
+             queen2 = duel._search_queen2(gid,uid)
+            #判断被扣掉的的是否为妻子，是则重选。    
+             if selected_girl==queen:
+                 n = 1
+                 r += 1
+             elif selected_girl==queen2:
+                 n = 1
+                 r += 1
+             else:
+                #判断好感是否足够，足够则扣掉好感
+                favor = duel._get_favor(gid,uid,selected_girl)    
+                if favor>=favor_reduce_NEED:
+                    c = chara.fromid(selected_girl)
+                    duel._reduce_favor(gid,uid,selected_girl,favor_reduce)
+                    msg = f'[CQ:at,qq={uid}]您与{c.name}的好感下降了{favor_reduce}点。\n{c.icon.cqcode}'
+                    n = 0
+                else:
+                    c = chara.fromid(selected_girl)
+                    duel._delete_card(gid, uid, selected_girl)
+                    duel._add_card(gid, winner, selected_girl)
+                    msg = f'[CQ:at,qq={uid}]您的女友{c.name}离开了\n{c.icon.cqcode}'
+                    n = 0
+             if r >= 10:
+                n = 0
+            await bot.send_group_msg(
+                    group_id = int(gid),
+                    message = msg
+                )
+            i += 1
+         duel._DALIY_SET(gid,uid) #重置今日是否决斗
+         s += 1
+     #await bot.send_group_msg(
+                    #group_id = int(gid),
+                    #message = f'本群公爵以上，未参与过改版后决斗的有{i}人，请注意，超出7天不决斗您的数据会被清除！'
+                #)
+     
+     i=0
+    e += 1
