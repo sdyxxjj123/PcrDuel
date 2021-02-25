@@ -39,6 +39,7 @@ GACHA_COST_Fail = 200 #抽老婆失败补偿量
 ZERO_GET_AMOUNT = 150  # 没钱补给量
 ZERO_GET_LIMIT = 3 #领金币每日次数限制
 WIN_NUM = 2 #下注获胜赢得的倍率
+ADMIT_LIMIT = 5 #认输多少场封停账号，可以解封但认输局不会清0，下次再认输会立即封停
 #女友部分
 SHANGXIAN_NUM = 100000 #增加女友上限所需金币
 WAREHOUSE_NUM = 10 #仓库增加上限
@@ -123,7 +124,7 @@ LEVEL_GIRL_NEED = {
         "8": 12,
         "9": 14,
         "10": 16,
-        "20": 99
+        "20": 999
     } # 升级所需要的老婆，格式为["等级“: 需求]
 LEVEL_COST_DICT = {
         "1": 0,
@@ -1212,6 +1213,16 @@ class DuelCounter:
             conn.commit()
         except:
             raise Exception('更新表发生错误')
+    def _ADMIT_Remake(self, gid, uid):
+        try:
+            WIN = self._get_WLCWIN(gid, uid)
+            LOSE = self._get_WLCLOSE(gid, uid)
+            conn = self._connect()
+            conn.execute("INSERT OR REPLACE INTO WLC (GID,UID,WIN,LOST,ADMIT) \
+                                VALUES (?,?,?,?,?)", (gid, uid, WIN, LOSE, 0))
+            conn.commit()
+        except:
+            raise Exception('更新表发生错误')
             
 #每日不决斗扣除女友部分
     def _get_gid_list(self):
@@ -1924,7 +1935,7 @@ async def nobleduel(bot, ev: CQEvent):
     duel_jiaoyier.init_jiaoyiflag(gid)
     duel_jiaoyier.set_jiaoyiid(gid, id1, id2, cid)
     duel_jiaoyier.turn_on_jiaoyi(gid)
-    msg = f'[CQ:at,qq={id2}]尊敬的{noblename}您好\n[CQ:at,qq={id1}]试图以{num}金币的价格购买您的女友{c.name}，请在{WAIT_TIME_jy}秒内[接受交易/拒绝交易]，女友交易需要收5%手续费哦。'
+    msg = f'[CQ:at,qq={id2}]尊敬的{noblename}您好\n[CQ:at,qq={id1}]试图以{num}金币的价格购买您的女友{c.name}，请在{WAIT_TIME_jy}秒内[接受交易/拒绝交易]，女友交易需要收{JiaoYi_NEED*100}%手续费哦。'
     await bot.send(ev, msg)
     
     await asyncio.sleep(WAIT_TIME_jy)
@@ -2952,6 +2963,10 @@ async def nobleduel(bot, ev: CQEvent):
           msg = '认输警告！本局为超时局/认输局，不进行金币结算，支持的金币全部返还。胜者获得的声望减半，金币大幅减少，不计等级差。'
         await bot.send(ev, msg)
         duel._add_ADMIT(gid,loser)
+        if duel._get_ADMIT(gid,loser) >= ADMIT_LIMIT:
+           duel._set_BAN(gid,loser)
+           msg = f'[CQ:at,qq={loser}]您的认输场次过多，账号已被封停！请联系管理员处理！'
+           await bot.send(ev, msg)
         duel_judger.set_support(ev.group_id)
         duel_judger.turn_off(ev.group_id)
         return
@@ -3127,13 +3142,14 @@ async def add_score(bot, ev: CQEvent):
         gid = ev.group_id
         uid = ev.user_id
         guid = gid,uid
-        if not daily_ZERO_limiter.checks(guid):
+        if daily_ZERO_limiter.checks(guid) == ZERO_GET_LIMIT:
             msg = f'超出领取金币每日限制次数！每日限{ZERO_GET_LIMIT}次！'
             await bot.send(ev, msg, at_sender=True)
             return
         current_score = score_counter._get_score(gid, uid)
         if current_score == 0:
             score_counter._add_score(gid, uid, ZERO_GET_AMOUNT)
+            daily_ZERO_limiter.increase(guid)
             msg = f'您已领取{ZERO_GET_AMOUNT}金币'
             await bot.send(ev, msg, at_sender=True)
             return
@@ -4284,6 +4300,17 @@ async def OFF_SWITCH2(bot, ev: CQEvent):
     duel = DuelCounter()
     duel._set_SWITCH2(gid,0)
     await bot.finish(ev, '关闭成功！', at_sender=True)
+
+@sv.on_fullmatch('查询本群不决斗惩罚')
+async def OFF_SWITCH2(bot, ev: CQEvent):
+    gid = ev.group_id
+    uid = ev.user_id
+    duel = DuelCounter()
+    if duel._get_BAN(gid,uid) ==0:
+       await bot.finish(ev, '目前本群不决斗惩罚处于关闭状态！', at_sender=True)
+    else:
+       await bot.finish(ev, '目前本群不决斗惩罚处于开启状态！', at_sender=True)
+    
     
     
 @sv.on_rex(r'^开启本群(金币|签到|梭哈倍率|免费招募|声望招募)庆典$')
@@ -4604,6 +4631,25 @@ async def reduce_ban(bot, ev: CQEvent):
     duel._reduce_BAN(gid,uid)
     msg = f'已解封群{gid}的{uid}。\n'
     await bot.send(ev, msg)
+    
+@sv.on_rex(f'^清空群(.*)的(.*)的认输场次$')
+async def reduce_ban(bot, ev: CQEvent):
+    if not priv.check_priv(ev, priv.SUPERUSER):
+        return
+    match = ev['match']
+    try:
+        gid = int(match.group(1))
+    except:
+        await bot.finish(ev, '参数格式错误')
+    try:
+        uid = int(match.group(2))
+    except:
+        await bot.finish(ev, '参数格式错误')
+    duel = DuelCounter()
+    duel._ADMIT_Remake(gid,uid)
+    msg = f'已清空群{gid}的{uid}的认输场次。\n'
+    await bot.send(ev, msg)
+
 
 @sv.on_fullmatch('本群重开')
 async def Reset(bot, ev: CQEvent):   
@@ -4648,7 +4694,7 @@ async def Reset(bot, ev: CQEvent):
     await bot.finish(ev, '已完成重开！')
     
     
-@sv.scheduled_job('cron', hour='*',)
+@sv.scheduled_job('cron', hour ='*',)
 async def clock():
     now = datetime.now(pytz.timezone('Asia/Shanghai'))
     if not now.hour == 5: #每天5点结算
@@ -4680,47 +4726,46 @@ async def clock():
          if level >=10 and Game == 0: #如果需要连续多少天不决斗惩罚在这改
            duel._TOTAL_ADD(gid,uid) #增加一天未决斗天数
            #惩罚内容
-           if Days >= 7:
+           if DayS >= 1: #请注意，这里的默认值是连续两天不决斗扣除一名女友
+            n = 1
+            r = 0
             while(n):
-             r = 0 #避免特殊条件下死循环
              cidlist = duel._get_cards(gid, uid)
              selected_girl = random.choice(cidlist)
              queen = duel._search_queen(gid,uid)
              queen2 = duel._search_queen2(gid,uid)
             #判断被扣掉的的是否为妻子，是则重选。    
              if selected_girl==queen:
-                 n = 1
+                if r != 10:
                  r += 1
+                 continue
+                else:
+                 break
              elif selected_girl==queen2:
-                 n = 1
+                if r != 10:
                  r += 1
+                 continue
+                else:
+                 break
              else:
                 #判断好感是否足够，足够则扣掉好感
                 favor = duel._get_favor(gid,uid,selected_girl)    
                 if favor>=favor_reduce_NEED:
                     c = chara.fromid(selected_girl)
                     duel._reduce_favor(gid,uid,selected_girl,favor_reduce)
-                    msg = f'[CQ:at,qq={uid}]您与{c.name}的好感下降了{favor_reduce}点。\n{c.icon.cqcode}'
+                    msg = f'[CQ:at,qq={uid}]您的等级为皇帝及以上，且今日未进行决斗，您与{c.name}的好感下降了{favor_reduce}点。\n{c.icon.cqcode}'
                     n = 0
                 else:
                     c = chara.fromid(selected_girl)
                     duel._delete_card(gid, uid, selected_girl)
-                    duel._add_card(gid, winner, selected_girl)
-                    msg = f'[CQ:at,qq={uid}]您的女友{c.name}离开了\n{c.icon.cqcode}'
+                    msg = f'[CQ:at,qq={uid}]您的等级为皇帝及以上，且今日未进行决斗，您的女友{c.name}离开了\n{c.icon.cqcode}'
                     n = 0
-             if r >= 10:
-                n = 0
-            await bot.send_group_msg(
+                await bot.send_group_msg(
                     group_id = int(gid),
                     message = msg
                 )
             i += 1
          duel._DALIY_SET(gid,uid) #重置今日是否决斗
          s += 1
-     #await bot.send_group_msg(
-                    #group_id = int(gid),
-                    #message = f'本群公爵以上，未参与过改版后决斗的有{i}人，请注意，超出7天不决斗您的数据会被清除！'
-                #)
-     
      i=0
     e += 1
