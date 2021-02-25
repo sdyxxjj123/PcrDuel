@@ -4306,7 +4306,7 @@ async def OFF_SWITCH2(bot, ev: CQEvent):
     gid = ev.group_id
     uid = ev.user_id
     duel = DuelCounter()
-    if duel._get_BAN(gid,uid) ==0:
+    if duel._get_SWITCH2(gid,uid) ==0:
        await bot.finish(ev, '目前本群不决斗惩罚处于关闭状态！', at_sender=True)
     else:
        await bot.finish(ev, '目前本群不决斗惩罚处于开启状态！', at_sender=True)
