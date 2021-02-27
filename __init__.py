@@ -503,9 +503,16 @@ async def intro_dlc(bot, ev: CQEvent):
         num = len(dlcdict[dlc])
         msg+=f'共有{num}名角色\n\n'
         i+=1
-    msg+= '发送 加载\卸载dlc+dlc名\n可加载\卸载dlc\n卸载的dlc不会被抽到，但是角色仍留在玩家仓库，可以被抢走。'    
-        
-    await bot.finish(ev, msg)
+    msg+= '发送 加载\卸载dlc+dlc名\n可加载\卸载dlc\n卸载的dlc不会被抽到，但是角色仍留在玩家仓库，可以被抢走。'          
+    data ={
+            "type": "node",
+            "data": {
+                "name": f'{NAMES}',
+                "uin": f'{QQ}',
+                "content": msg
+            }
+            }
+    await bot.send_group_forward_msg(group_id=ev.group_id, messages=data)
 
 @sv.on_fullmatch(['dlc帮助','DLC帮助','dlc指令','DLC指令'])
 async def help_dlc(bot, ev: CQEvent):
@@ -2273,13 +2280,21 @@ async def add_warehouse(bot, ev: CQEvent):
         myhouse = get_girlnum_buy(gid, uid)
         msg = f'您消耗了{SHANGXIAN_NUM}金币，{SHANGXIAN_SW}声望，增加了1个女友上限，目前的女友上限为{myhouse}名'
         await bot.send(ev, msg, at_sender=True)
-
+        
+async def get_user_card(bot, group_id, user_id):
+    mlist = await bot.get_group_member_list(group_id=group_id)
+    for m in mlist:
+        if m['user_id'] == user_id:
+            return m['card'] if m['card']!='' else m['nickname']
+    return str(user_id)
+    
 @sv.on_fullmatch(['查询贵族', '贵族查询', '我的贵族'])
 async def inquire_noble(bot, ev: CQEvent):
     gid = ev.group_id
     uid = ev.user_id
     duel = DuelCounter()
     score_counter = ScoreCounter2()
+    user_card = await get_user_card(bot,gid,uid)
     if duel._get_level(gid, uid) == 0:
         msg = '您还未在本群创建过贵族，请发送 创建贵族 开始您的贵族之旅。'
         await bot.send(ev, msg, at_sender=True)
@@ -2289,7 +2304,6 @@ async def inquire_noble(bot, ev: CQEvent):
     girlnum = get_girlnum_buy(gid,uid)
     score = score_counter._get_score(gid, uid)
     charalist = []
-
     cidlist = duel._get_cards(gid, uid)
     cidnum = len(cidlist)
     Winnum = duel._get_WLCWIN(gid,uid)
@@ -2308,6 +2322,7 @@ async def inquire_noble(bot, ev: CQEvent):
     else:
        partmsg = f'您的声望为{prestige}点'
     nv_names=''
+    msgs = f'{user_card}您的贵族信息如下：\n'
     if cidnum == 0:
         msg = f'''
 ╔                          ╗
@@ -2442,6 +2457,7 @@ async def inquire_noble(bot, ev: CQEvent):
 '''
         if duel._get_BAN(gid,uid) == 1:
             msg += '\n<该账号被封停中,请联系管理员处理>'
+        msg = msgs + msg
         data ={
             "type": "node",
             "data": {
@@ -2451,6 +2467,7 @@ async def inquire_noble(bot, ev: CQEvent):
             }
             }
         await bot.send_group_forward_msg(group_id=ev.group_id, messages=data)
+
 
 
 @sv.on_fullmatch(['招募女友', '贵族舞会'])
@@ -4598,6 +4615,49 @@ async def BC(bot, ev: CQEvent):
                 i= i-1
         s += 1
     await bot.send(ev, msg, at_sender=True)
+    
+@sv.on_rex(r'^所有群发放补偿(.*)个(金币|声望|公主之心|)$')
+async def BC2(bot, ev: CQEvent):   
+    if not priv.check_priv(ev, priv.SUPERUSER):
+        await bot.finish(ev, '无权进行该操作！', at_sender=True)
+    evgid = ev.group_id
+    duel = DuelCounter()
+    score_dict = {}
+    match = (ev['match'])
+    num = int(match.group(1))
+    Lei = (match.group(2))
+    score_counter = ScoreCounter2()
+    glist = await bot.get_group_list()
+    d = {}
+    for m in glist:
+        d[m['group_id']] = m['group_id']
+    mlist = duel._get_gid_list()
+    for e in range(len(mlist)):
+     gid = int(mlist[e])       
+     if not gid in d:  #判断是否在群，避免100
+        continue
+     umlist = duel._get_uid_list(gid)
+     for s in range(len(umlist)):
+        uid = int(umlist[s])
+        level = duel._get_level(gid,uid)
+        guid = gid, uid
+        if Lei == '金币':
+            score_counter._add_score(gid,uid,num)
+            msg = f'管理员为本群发放了{num}金币补偿！'
+        if Lei == '声望':
+            score_counter._add_prestige(gid,uid,num)
+            msg = f'管理员为本群发放了{num}声望补偿！'
+        if Lei == '公主之心':
+            msg = f'管理员为本群发放了{num}公主之心补偿！'               
+            i = num
+            while(i):
+                duel._add_gift(gid,uid,10)
+                i= i-1
+     await bot.send_group_msg(
+                    group_id = int(gid),
+                    message = msg
+                )
+    await bot.send(ev, '执行完毕', at_sender=True)
 @sv.on_rex(f'^自定义武器装弹(\d+)发$')
 async def weaponchange2(bot, ev: CQEvent):
     gid = ev.group_id
