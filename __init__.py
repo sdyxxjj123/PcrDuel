@@ -29,7 +29,8 @@ WAIT_TIME = 30 # 对战接受等待时间
 WAIT_TIME_jy = 30 # 交易接受等待时间
 DUEL_SUPPORT_TIME = 30 # 赌钱等待时间
 DB_PATH = os.path.expanduser("~/.hoshino/pcr_duel.db")
-
+NAMES = '麻花疼' #转发消息中显示的昵称
+QQ = 10086 #转发消息中的QQ（获取头像）
 #这里是参数设置区
 SIGN_DAILY_LIMIT = 1  # 机器人每天签到的次数
 DUEL_DAILY_LIMIT = 999 #每个人每日发起决斗上限
@@ -362,7 +363,15 @@ async def duel_help(bot, ev: CQEvent):
   声望只能由决斗获得
 ╚                                        ╝
 '''  
-    await bot.send(ev, msg)
+    data ={
+            "type": "node",
+            "data": {
+                "name": f'{NAMES}',
+                "uin": f'{QQ}',
+                "content": msg
+            }
+            }
+    await bot.send_group_forward_msg(group_id=ev.group_id, messages=data)
 
     
 blhxlist = range(6000,6106)
@@ -554,7 +563,15 @@ async def duel_biao(bot, ev: CQEvent):
         msg += f'"{i}": "{get_noblename(i)}",  升级需要{get_noblescore(i)}金币，{get_noblesw(i)}声望，需要{get_nobleWin(i)}胜场，最多可持有{get_girlnum(i)}名女友，每日签到额外获得{scoreLV * i}金币，{SWLV * i}声望，不会再掉级。\n'
         i = i+1
     msg += f'"11": "神",  升级需要{FS_NEED_GOLD}币，{FS_NEED_SW}声望，无女友上限，每日签到额外获得{scoreLV * 20}金币，{SWLV * 20}声望，可以拥有两名妻子\n'
-    await bot.send(ev, msg)
+    data ={
+            "type": "node",
+            "data": {
+                "name": f'{NAMES}',
+                "uin": f'{QQ}',
+                "content": msg
+            }
+            }
+    await bot.send_group_forward_msg(group_id=ev.group_id, messages=data)
 
 
 # noinspection SqlResolve
@@ -2425,7 +2442,15 @@ async def inquire_noble(bot, ev: CQEvent):
 '''
         if duel._get_BAN(gid,uid) == 1:
             msg += '\n<该账号被封停中,请联系管理员处理>'
-        await bot.send(ev, msg, at_sender=True)
+        data ={
+            "type": "node",
+            "data": {
+                "name": f'{NAMES}',
+                "uin": f'{QQ}',
+                "content": msg
+            }
+            }
+        await bot.send_group_forward_msg(group_id=ev.group_id, messages=data)
 
 
 @sv.on_fullmatch(['招募女友', '贵族舞会'])
@@ -3808,15 +3833,51 @@ async def buy_gift(bot, ev: CQEvent):
     if not daily_gift_limiter.check(guid):
         await bot.finish(ev, f'今天购买礼物已经超过{GIFT_DAILY_LIMIT}次了哦，明天再来吧。', at_sender=True)     
     select_gift = random.choice(list(GIFT_DICT.keys()))
-    while(select_gift == 10):
-        select_gift = random.choice(list(GIFT_DICT.keys()))
     gfid = GIFT_DICT[select_gift]
+    while(gfid == 10):
+            select_gift = random.choice(list(GIFT_DICT.keys()))
+            gfid = GIFT_DICT[select_gift]
     duel._add_gift(gid,uid,gfid)
     msg = f'\n您花费了300金币，\n买到了[{select_gift}]哦，\n欢迎下次惠顾。'
     score_counter._reduce_score(gid,uid,300)
     daily_gift_limiter.increase(guid)
     await bot.send(ev, msg, at_sender=True)    
-
+    
+@sv.on_rex(r'^买(\d+)(个|份)礼物$')
+async def buy_gift(bot, ev: CQEvent):
+    gid = ev.group_id
+    uid = ev.user_id
+    duel = DuelCounter()
+    match = ev['match']
+    score_counter = ScoreCounter2()
+    guid = gid,uid
+    num = int(match.group(1))
+    if duel_judger.get_on_off_status(ev.group_id):
+        msg = '现在正在决斗中哦，请决斗后再来买礼物吧。'
+        await bot.finish(ev, msg, at_sender=True)
+    if duel._get_BAN(gid,uid) == 1:
+        await bot.send(ev, '您的账号触发安全机制，已被封停，请联系管理员处理！', at_sender=True)
+        return
+    score = score_counter._get_score(gid, uid)
+    if score < 300 * num:
+        await bot.finish(ev, f'购买礼物需要{300*num}金币，您的金币不足哦。', at_sender=True) 
+    if num > (GIFT_DAILY_LIMIT - daily_gift_limiter.checks(guid)):
+        await bot.finish(ev, f'今天购买礼物的次数不足哦，您还可以购买{GIFT_DAILY_LIMIT - daily_gift_limiter.checks(guid)}次。', at_sender=True)
+    n = num
+    giftmsg = ''
+    while(n):
+        select_gift = random.choice(list(GIFT_DICT.keys()))
+        gfid = GIFT_DICT[select_gift]
+        while(gfid == 10):
+            select_gift = random.choice(list(GIFT_DICT.keys()))
+            gfid = GIFT_DICT[select_gift]
+        giftmsg += f'{select_gift} '
+        duel._add_gift(gid,uid,gfid)
+        n -= 1
+    msg = f'\n您花费了{300*num}金币，\n买到了[{giftmsg}]哦，\n欢迎下次惠顾。'
+    score_counter._reduce_score(gid,uid,300*num)
+    daily_gift_limiter.increase2(guid,num)
+    await bot.send(ev, msg, at_sender=True)   
 
 @sv.on_fullmatch(['我的礼物','礼物仓库','查询礼物','礼物列表'])
 async def my_gift(bot, ev: CQEvent):
