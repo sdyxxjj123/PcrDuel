@@ -4012,7 +4012,7 @@ async def buy_information(bot, ev: CQEvent):
     normal = ''
     dislike = ''
     for gift in GIFT_DICT.keys():
-        if GIFT_DICT[gift]==last_num:
+        if GIFT_DICT[gift]==last_num or GIFT_DICT[gift]==10:
             favorite = gift
             continue
         num1 = last_num%3
