@@ -80,7 +80,7 @@
 ## 魔改版注意事项  
 ### 原作者地址:https://github.com/Rs794613/PcrDuel
 ### 魔改版仓库地址:https://github.com/sdyxxjj123/PcrDuel
-### 魔改版个人仓库地址:http://feite.asia:8099/sdyxxjj123/Pcr_Duel
+### 魔改版个人仓库地址:http://feite.asia:8100/sdyxxjj123/Pcr_Duel
 ### 魔改内容：
 - 1.细化了等级分类  
 - 2.升级从6级（伯爵）开始需要声望   

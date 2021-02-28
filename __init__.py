@@ -4029,13 +4029,14 @@ async def buy_information(bot, ev: CQEvent):
     normal = ''
     dislike = ''
     for gift in GIFT_DICT.keys():
-        if GIFT_DICT[gift]==last_num or GIFT_DICT[gift]==10:
+        if GIFT_DICT[gift]==last_num:
             favorite = gift
             continue
         num1 = last_num%3
         num2 = GIFT_DICT[gift]%3
         choicelist = GIFTCHOICE_DICT[num1]
-
+        if GIFT_DICT[gift]==10:
+            continue
         if num2 == choicelist[0]:
             like+=f'{gift}\n'
             continue
@@ -4046,7 +4047,7 @@ async def buy_information(bot, ev: CQEvent):
             dislike+=f'{gift}\n'
             continue    
     c = chara.fromid(cid)       
-    msg = f'\n花费了500金币，您买到了以下情报：\n{c.name}最喜欢的礼物是:\n{favorite}\n喜欢的礼物是:\n{like}一般喜欢的礼物是:\n{normal}不喜欢的礼物是:\n{dislike}{c.icon.cqcode}'
+    msg = f'\n花费了500金币，您买到了以下情报：\n{c.name}特别喜欢的礼物是:\n公主之心\n最喜欢的礼物是:\n{favorite}\n喜欢的礼物是:\n{like}一般喜欢的礼物是:\n{normal}不喜欢的礼物是:\n{dislike}{c.icon.cqcode}'
     await bot.send(ev, msg, at_sender=True)  
 
 @sv.on_fullmatch(['好感系统帮助','礼物系统帮助','好感帮助','礼物帮助'])
