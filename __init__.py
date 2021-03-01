@@ -29,6 +29,7 @@ WAIT_TIME = 30 # 对战接受等待时间
 WAIT_TIME_jy = 30 # 交易接受等待时间
 DUEL_SUPPORT_TIME = 30 # 赌钱等待时间
 DB_PATH = os.path.expanduser("~/.hoshino/pcr_duel.db")
+ZF_ON = True #启用合并转发（如果因为风控无法发出转发可以关闭合并转发）
 NAMES = '麻花疼' #转发消息中显示的昵称
 QQ = 10086 #转发消息中的QQ（获取头像）
 #这里是参数设置区
@@ -187,7 +188,8 @@ GIFT_DICT = {
         "热牛奶"  :7,
         "书"      :8,
         "鲜花"    :9,
-        "公主之心" :10
+        "公主之心" :10,
+        "强制决斗卡":11
     }  
 
 GIFTCHOICE_DICT={
@@ -371,7 +373,11 @@ async def duel_help(bot, ev: CQEvent):
                 "content": msg
             }
             }
-    await bot.send_group_forward_msg(group_id=ev.group_id, messages=data)
+    if ZF_ON == True:
+        await bot.send_group_forward_msg(group_id=ev.group_id, messages=data)
+    else:
+        await bot.finish(ev, msg)
+        
 
     
 blhxlist = range(6000,6106)
@@ -512,7 +518,10 @@ async def intro_dlc(bot, ev: CQEvent):
                 "content": msg
             }
             }
-    await bot.send_group_forward_msg(group_id=ev.group_id, messages=data)
+    if ZF_ON == True:
+        await bot.send_group_forward_msg(group_id=ev.group_id, messages=data)
+    else:
+        await bot.finish(ev, msg)
 
 @sv.on_fullmatch(['dlc帮助','DLC帮助','dlc指令','DLC指令'])
 async def help_dlc(bot, ev: CQEvent):
@@ -578,7 +587,10 @@ async def duel_biao(bot, ev: CQEvent):
                 "content": msg
             }
             }
-    await bot.send_group_forward_msg(group_id=ev.group_id, messages=data)
+    if ZF_ON == True:
+        await bot.send_group_forward_msg(group_id=ev.group_id, messages=data)
+    else:
+        await bot.finish(ev, msg)
 
 
 # noinspection SqlResolve
@@ -2466,7 +2478,10 @@ async def inquire_noble(bot, ev: CQEvent):
                 "content": msg
             }
             }
-        await bot.send_group_forward_msg(group_id=ev.group_id, messages=data)
+        if ZF_ON == True:
+            await bot.send_group_forward_msg(group_id=ev.group_id, messages=data)
+        else:
+            await bot.finish(ev, msg)
 
 
 
@@ -2696,13 +2711,22 @@ async def nobleduel(bot, ev: CQEvent):
     if duel_judger.get_on_off_status(ev.group_id):
         await bot.send(ev, "此轮决斗还没结束，请勿重复使用指令。")
         return
-        
+    duel = DuelCounter()
+    args = ev.message.extract_plain_text().split()
     gid = ev.group_id
-    duel_judger.turn_on(gid)
-    duel = DuelCounter()
-    score_counter = ScoreCounter2()
     id1 = ev.user_id
-    duel = DuelCounter()
+    force = 0
+    if not args:
+        force = 0
+    else:
+        if args[0] == '强制':
+            gfid = 11
+            if duel._get_gift_num(gid,id1,gfid)==0:
+                await bot.finish(ev, '您并未持有强制决斗卡！')
+            duel._reduce_gift(gid,id1,gfid)
+            force = 1
+    duel_judger.turn_on(gid)
+    score_counter = ScoreCounter2()
     is_overtime = 0
     prestige = score_counter._get_prestige(gid,id1)
     prestige2 = score_counter._get_prestige(gid,id2)
@@ -2764,12 +2788,15 @@ async def nobleduel(bot, ev: CQEvent):
     duel_judger.init_isaccept(gid)
     duel_judger.set_duelid(gid, id1, id2)
     duel_judger.turn_on_accept(gid)
-    msg = f'[CQ:at,qq={id2}]对方向您发起了优雅的贵族决斗，请在{WAIT_TIME}秒内[接受/拒绝]。'
+    if force != 1:
+        msg = f'[CQ:at,qq={id2}]对方向您发起了优雅的贵族决斗，请在{WAIT_TIME}秒内[接受/拒绝]。'
+    else:
+        msg = f'[CQ:at,qq={id2}]对方向您强制发起了贵族决斗，决斗将于{WAIT_TIME}秒后自动开始，强制使用贝雷塔687武器。'
 
     await bot.send(ev, msg)
     await asyncio.sleep(WAIT_TIME)
     duel_judger.turn_off_accept(gid)
-    if duel_judger.get_isaccept(gid) is False:
+    if duel_judger.get_isaccept(gid) is False and force != 1:
         msg = '决斗被拒绝。'
         duel_judger.turn_off(gid)
         await bot.send(ev, msg, at_sender=True)
@@ -2782,6 +2809,8 @@ async def nobleduel(bot, ev: CQEvent):
     id1Win = duel._get_WLCWIN(gid,id1)
     id2Win = duel._get_WLCWIN(gid,id2)
     n = duel._get_weapon(gid)
+    if force == 1:
+        n = 2
     if n == 6:
         msg = '''目前本群启用的武器是俄罗斯左轮，弹匣量为6\n'''
     elif n == 2:
@@ -2819,7 +2848,7 @@ async def nobleduel(bot, ev: CQEvent):
 
     await bot.send(ev, msg)
     duel_judger.turn_on_support(gid)
-    x = duel._get_weapon(gid) + 1
+    x = n + 1
     deadnum = int(math.floor( random.uniform(1,x) ))
     print ("死的位置是", deadnum)
     duel_judger.set_deadnum(gid, deadnum)
@@ -2829,10 +2858,10 @@ async def nobleduel(bot, ev: CQEvent):
     duel_judger.turn_on_fire(gid)
     duel_judger.turn_off_hasfired(gid)
     msg = f'支持环节结束，下面请决斗双方轮流[开枪]。\n[CQ:at,qq={id1}]先开枪，30秒未开枪自动认输'
-
+    w = n
     await bot.send(ev, msg)
     n = 1
-    while (n <= duel._get_weapon(gid)):
+    while (n <= w):
         wait_n = 0
         while (wait_n < 30):
             if duel_judger.get_on_off_hasfired_status(gid):
@@ -2948,7 +2977,7 @@ async def nobleduel(bot, ev: CQEvent):
     level_winner = duel._get_level(gid, winner)
     wingold = 800 + (level_loser * 100)
     if is_overtime == 1:
-         if n != duel._get_weapon(gid):
+         if n != w:
            wingold = 100
     score_counter._add_score(gid, winner, wingold)
     msg = f'[CQ:at,qq={winner}]本次决斗胜利获得了{wingold}金币。'
@@ -2959,9 +2988,10 @@ async def nobleduel(bot, ev: CQEvent):
     if winprestige != None:
         level_cha = level_loser - level_winner
         level_zcha = max(level_cha,0)
+        level_zcha = min(level_zcha,5)
         winSW = WinSWBasics + (level_zcha * 20)
         if is_overtime == 1:
-         if n != duel._get_weapon(gid):
+         if n != w:
             if level_loser < 6:
                winSW = 0
             else:
@@ -2975,6 +3005,7 @@ async def nobleduel(bot, ev: CQEvent):
     if loseprestige != -1:
         level_cha = level_loser - level_winner
         level_zcha = max(level_cha,0)
+        level_zcha = min(level_zcha,5)
         LOSESW = LoseSWBasics + (level_zcha * 10)
         score_counter._reduce_prestige(gid,loser,LOSESW)
         msg = f'[CQ:at,qq={loser}]决斗失败使您的声望下降了{LOSESW}点。'
@@ -2998,7 +3029,7 @@ async def nobleduel(bot, ev: CQEvent):
     #结算下注金币，判定是否为超时局。
     
     if is_overtime == 1:
-     if n != duel._get_weapon(gid):
+     if n != w:
         if level_loser < 6:
           msg = '认输警告！本局为超时局/认输局，不进行金币结算，支持的金币全部返还。胜者获得的声望为0，金币大幅减少。'
         else:
@@ -3851,7 +3882,7 @@ async def buy_gift(bot, ev: CQEvent):
         await bot.finish(ev, f'今天购买礼物已经超过{GIFT_DAILY_LIMIT}次了哦，明天再来吧。', at_sender=True)     
     select_gift = random.choice(list(GIFT_DICT.keys()))
     gfid = GIFT_DICT[select_gift]
-    while(gfid == 10):
+    while(gfid >= 10):
             select_gift = random.choice(list(GIFT_DICT.keys()))
             gfid = GIFT_DICT[select_gift]
     duel._add_gift(gid,uid,gfid)
@@ -3885,7 +3916,7 @@ async def buy_gift(bot, ev: CQEvent):
     while(n):
         select_gift = random.choice(list(GIFT_DICT.keys()))
         gfid = GIFT_DICT[select_gift]
-        while(gfid == 10):
+        while(gfid >= 10):
             select_gift = random.choice(list(GIFT_DICT.keys()))
             gfid = GIFT_DICT[select_gift]
         giftmsg += f'{select_gift} '
@@ -3896,12 +3927,12 @@ async def buy_gift(bot, ev: CQEvent):
     daily_gift_limiter.increase2(guid,num)
     await bot.send(ev, msg, at_sender=True)   
 
-@sv.on_fullmatch(['我的礼物','礼物仓库','查询礼物','礼物列表'])
+@sv.on_fullmatch(['我的仓库','礼物仓库','查询礼物','礼物列表'])
 async def my_gift(bot, ev: CQEvent):
     gid = ev.group_id
     uid = ev.user_id
     duel = DuelCounter()
-    msg = f'\n您的礼物仓库如下:'
+    msg = f'\n您的仓库如下:'
     giftmsg =''
     for gift in GIFT_DICT.keys():
         gfid = GIFT_DICT[gift]
@@ -3944,11 +3975,16 @@ async def change_gift(bot, ev: CQEvent):
         await bot.finish(ev, f'礼物2不存在。')        
     gfid1 = GIFT_DICT[gift1]
     gfid2 = GIFT_DICT[gift2] 
+    if gfid1 >= 10:
+        gift_change.turn_off_giftchange(ev.group_id)    
+        await bot.finish(ev, f'[CQ:at,qq={id1}]\n{gift1}不是礼物，不能交换。')  
+    if gfid2 >= 10:
+        gift_change.turn_off_giftchange(ev.group_id)    
+        await bot.finish(ev, f'[CQ:at,qq={id1}]\n{gift2}不是礼物，不能交换。') 
     if gfid2 == gfid1:
         await bot.send(ev, "不能交换相同的礼物！", at_sender=True)
         gift_change.turn_off_giftchange(ev.group_id)
         return           
-
     if duel._get_gift_num(gid,id1,gfid1)==0:
         gift_change.turn_off_giftchange(ev.group_id)    
         await bot.finish(ev, f'[CQ:at,qq={id1}]\n您的{gift1}的库存不足哦。')    
@@ -4035,7 +4071,7 @@ async def buy_information(bot, ev: CQEvent):
         num1 = last_num%3
         num2 = GIFT_DICT[gift]%3
         choicelist = GIFTCHOICE_DICT[num1]
-        if GIFT_DICT[gift]==10:
+        if GIFT_DICT[gift] >= 10:
             continue
         if num2 == choicelist[0]:
             like+=f'{gift}\n'
@@ -4135,8 +4171,8 @@ async def lihun_queen(bot, ev: CQEvent):
     score_counter._reduce_score(gid,uid,20000)    
     score_counter._reduce_prestige(gid,uid,3000)
     duel._delete_card(gid, uid, cid)
-    c = chara.fromid(queen)
-    nvmes = get_nv_icon(queen)
+    c = chara.fromid(cid)
+    nvmes = get_nv_icon(cid)
     msg = f'花费了20000金币，[CQ:at,qq={uid}]总算将他的妻子{c.name}赶出家门\n，引起了众人的不满，损失3000声望。{nvmes}'
     await bot.send(ev, msg)
     duel._delete_queen_owner(gid,cid)
