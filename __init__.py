@@ -2716,15 +2716,6 @@ async def nobleduel(bot, ev: CQEvent):
     gid = ev.group_id
     id1 = ev.user_id
     force = 0
-    if not args:
-        force = 0
-    else:
-        if args[0] == '强制':
-            gfid = 11
-            if duel._get_gift_num(gid,id1,gfid)==0:
-                await bot.finish(ev, '您并未持有强制决斗卡！')
-            duel._reduce_gift(gid,id1,gfid)
-            force = 1
     duel_judger.turn_on(gid)
     score_counter = ScoreCounter2()
     is_overtime = 0
@@ -2773,6 +2764,15 @@ async def nobleduel(bot, ev: CQEvent):
         duel_judger.turn_off(ev.group_id)
         return
     daily_duel_limiter.increase(guid)
+    if not args:
+        force = 0
+    else:
+        if args[0] == '强制':
+            gfid = 11
+            if duel._get_gift_num(gid,id1,gfid)==0:
+                await bot.finish(ev, '您并未持有强制决斗卡！')
+            duel._reduce_gift(gid,id1,gfid)
+            force = 1
 
 
 
@@ -3853,6 +3853,8 @@ async def give_gift(bot, ev: CQEvent):
     gfid = GIFT_DICT[gift]
     if duel._get_gift_num(gid,uid,gfid)==0:
         await bot.finish(ev, '你的这件礼物的库存不足哦。', at_sender=True)
+    if gfid > 10:
+        await bot.finish(ev, '这件礼物可不能赠送哦。', at_sender=True)
     duel._reduce_gift(gid,uid,gfid)
     favor,text = check_gift(cid,gfid)
     duel._add_favor(gid,uid,cid,favor)
