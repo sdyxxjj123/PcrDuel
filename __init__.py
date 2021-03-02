@@ -1461,7 +1461,7 @@ class DuelCounter:
 
     def _reduce_favor(self, gid, uid, cid, num):
         favor = self._get_favor(gid, uid, cid)
-        favor -= num
+        favor -= num 
         favor = max(favor,0)
         with self._connect() as conn:
             conn.execute(
