@@ -3116,7 +3116,7 @@ async def nobleduel(bot, ev: CQEvent):
         await bot.send(ev, msg)
         msg = f'[CQ:at,qq={loser}]\n您使用了保护卡，本次决斗未损失女友'
         await bot.send(ev, msg)
-        duel._reduce_gift(gid,loser,gfid)
+        duel._reduce_gift(gid,loser,12)
     
     #判断胜者败者是否需要增减声望
     level_loser = duel._get_level(gid, loser)
@@ -5244,6 +5244,7 @@ async def Shop(bot, ev: CQEvent):
             shop6 = gift
             num6 = -1
             continue
+    random.seed(gid+uid+hour+day+month)
     if shopid == 1:
         needgold = (random.randint(1,10)*200)
         if score < needgold:
