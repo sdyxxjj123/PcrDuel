@@ -66,6 +66,7 @@ LoseSWBasics = 150 #输了掉的基础声望
 #签到部分
 scoreLV = 300 #每日根据等级获得的金币（等级*参数）
 SWLV = 50 #每日根据等级获得的声望（等级*参数）
+QDNEEDJD = True #签到是否需要先进行一次每日决斗
 #等级部分
 Safe_LV = 8 #不会再掉级的等级
 DJ_NEED_SW = 2500 #加冕称帝消耗的声望
@@ -2129,6 +2130,9 @@ async def noblelogin(bot, ev: CQEvent):
     uid = ev.user_id
     guid = gid, uid
     duel = DuelCounter()
+    if duel._get_DALIY == 0 and QDNEEDJD == True:
+        await bot.send(ev, '您每日需要先决斗一次，然后才能签到！', at_sender=True)
+        return
     if duel._get_BAN(gid,uid) == 1:
         await bot.send(ev, '您的账号触发安全机制，已被封停，请联系管理员处理！', at_sender=True)
         return
@@ -2164,14 +2168,17 @@ async def noblelogin(bot, ev: CQEvent):
     level = duel._get_level(gid, uid)
     score2 = scoreLV * level
     SW2 = SWLV * level
-    scoresum = score1+score2
+
     noblename = get_noblename(level)
     score = score_counter._get_score(gid, uid)  
     if duel._get_QC_CELE(gid) == 1:
-     scoresum = scoresum * QD_Gold_Cele_Num
+     score1 = score1 * QD_Gold_Cele_Num
+     score2 = score2 * QD_Gold_Cele_Num
+     scoresum = score1+score2
      SW2 = SW2 * QD_SW_Cele_Num
      msg = f'\n{text1}\n签到成功！\n[庆典举办中]\n您领取了：\n\n{score1}金币(随机)和\n{score2}金币以及{SW2}声望({noblename}爵位)'
     else:
+     scoresum = score1+score2
      msg = f'\n{text1}\n签到成功！\n您领取了：\n\n{score1}金币(随机)和\n{score2}金币以及{SW2}声望({noblename}爵位)'
     score_counter._add_prestige(gid,uid,SW2)
     score_counter._add_score(gid, uid, scoresum)
@@ -3198,7 +3205,9 @@ async def nobleduel(bot, ev: CQEvent):
             support_id = support[uid][0]
             support_score = support[uid][1]
             if support_id == winnum:
-                CHLEVELUP = (duel._get_CHLEVEL(gid,uid)*0.1+1)
+                CHLEVELUP = round(duel._get_CHLEVEL(gid,uid)*0.1+1,1)
+                print(CHLEVELUP)
+                print(duel._get_CHLEVEL(gid,uid))
                 #这里是赢家获得的金币结算，可以自己修改倍率。
                 if duel._get_GOLD_CELE(gid) == 1:
                  winscore = support_score * WIN_NUM * Gold_Cele_Num * CHLEVELUP
@@ -3206,7 +3215,7 @@ async def nobleduel(bot, ev: CQEvent):
                  winscore = support_score * WIN_NUM * CHLEVELUP
                 score_counter._add_score(gid, uid, winscore)
                 if CHLEVELUP != 0:
-                    supportmsg += f'[CQ:at,qq={uid}]+{winscore}金币[称号加成+{CHLEVELUP-1}%]\n'
+                    supportmsg += f'[CQ:at,qq={uid}]+{winscore}金币[称号加成+{round(CHLEVELUP-1,2)*100}%]\n'
                 else:
                     supportmsg += f'[CQ:at,qq={uid}]+{winscore}金币\n'
             else:
@@ -5198,15 +5207,18 @@ async def Shop(bot, ev: CQEvent):
     num3 = random.randint(6,8)
     num4 = random.randint(9,10)
     num5 = random.randint(5,11)
+    num6 = random.randint(-30,15)
     if not args:
         await bot.finish(ev, '请输入 购买物品+物品编号 中间用空格隔开。', at_sender=True)
     if len(args)!=1:
         await bot.finish(ev, '请输入 购买物品+物品编号 中间用空格隔开。', at_sender=True)
     shopid = int(args[0])
-    if shopid > 5 or shopid <=0:
+    if shopid > 6 or shopid <=0:
         await bot.finish(ev, '请输入正确的物品编号。', at_sender=True)
     if shopid == 5 and num5 < 10:
         await bot.finish(ev, '请输入正确的物品编号。', at_sender=True)    
+    if shopid == 6 and num6 < 11:
+        await bot.finish(ev, '请输入正确的物品编号。', at_sender=True)  
     for gift in GIFT_DICT.keys():
         if GIFT_DICT[gift] == num1:
             shop1 = gift
@@ -5228,6 +5240,10 @@ async def Shop(bot, ev: CQEvent):
             shop5 = gift
             num5 = -1
             continue
+        if GIFT_DICT[gift] == num6 and num6 >=11:
+            shop6 = gift
+            num6 = -1
+            continue
     if shopid == 1:
         needgold = (random.randint(1,10)*200)
         if score < needgold:
@@ -5237,6 +5253,7 @@ async def Shop(bot, ev: CQEvent):
         duel._add_gift(gid,uid,gfid)
         daily_SHOP_limiter.increase(guid)
         await bot.finish(ev, f'成功购买了{shop1},花费了{needgold}金币。', at_sender=True) 
+        
     if shopid == 2:
         needgold = (random.randint(2,10)*200)
         if score < needgold:
@@ -5246,6 +5263,7 @@ async def Shop(bot, ev: CQEvent):
         daily_SHOP_limiter.increase(guid)
         score_counter._reduce_score(gid,uid,needgold)
         await bot.finish(ev, f'成功购买了{shop2},花费了{needgold}金币。', at_sender=True) 
+        
     if shopid == 3:
         needgold = (random.randint(3,10)*200)
         if score < needgold:
@@ -5255,6 +5273,7 @@ async def Shop(bot, ev: CQEvent):
         daily_SHOP_limiter.increase(guid)
         score_counter._reduce_score(gid,uid,needgold)
         await bot.finish(ev, f'成功购买了{shop3},花费了{needgold}金币。', at_sender=True) 
+        
     if shopid == 4:
         gfid = GIFT_DICT[shop4]
         if gfid < 10:
@@ -5268,6 +5287,7 @@ async def Shop(bot, ev: CQEvent):
         daily_SHOP_limiter.increase(guid)
         score_counter._reduce_score(gid,uid,needgold)
         await bot.finish(ev, f'成功购买了{shop4},花费了{needgold}金币。', at_sender=True) 
+        
     if shopid == 5:
         needgold = (10000+random.randint(6,10)*200)
         if score < needgold:
@@ -5276,7 +5296,17 @@ async def Shop(bot, ev: CQEvent):
         duel._add_gift(gid,uid,gfid)
         daily_SHOP_limiter.increase(guid)
         score_counter._reduce_score(gid,uid,needgold)
-        await bot.finish(ev, f'成功购买了{shop5},花费了{needgold}金币。', at_sender=True)    
+        await bot.finish(ev, f'成功购买了{shop5},花费了{needgold}金币。', at_sender=True)  
+    
+    if shopid == 6:
+        needgold = (30000+random.randint(6,12)*300)
+        if score < needgold:
+            await bot.finish(ev, f'购买需要{needgold}金币，您的金币不足哦。', at_sender=True) 
+        gfid = GIFT_DICT[shop6]
+        duel._add_gift(gid,uid,gfid)
+        daily_SHOP_limiter.increase(guid)
+        score_counter._reduce_score(gid,uid,needgold)
+        await bot.finish(ev, f'成功购买了{shop6},花费了{needgold}金币。', at_sender=True)
 
 @sv.on_prefix(['批量送礼'])
 async def give_gift(bot, ev: CQEvent):
