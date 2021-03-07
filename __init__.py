@@ -2363,16 +2363,18 @@ async def add_warehouse(bot, ev: CQEvent):
     uid = ev.user_id
     current_score = score_counter._get_score(gid, uid)
     prestige = score_counter._get_prestige(gid,uid)
+    houseadd = (duel._get_warehouse(gid, uid))*0.1
+    
     if duel._get_level(gid, uid) <= 9:
         msg = '只有成为皇帝后，才能扩充女友上限喔'
         await bot.send(ev, msg, at_sender=True)
         return
-    if prestige < SHANGXIAN_SW:
-        msg = '扩充女友上限，需要{SHANGXIAN_SW}声望，您的声望不足喔'
+    if prestige < SHANGXIAN_SW * (1+houseadd):
+        msg = f'以您目前的上限，扩充女友上限，需要{round(SHANGXIAN_SW * (1+houseadd),0)}声望，您的声望不足喔'
         await bot.send(ev, msg, at_sender=True)
         return
-    if current_score < SHANGXIAN_NUM:
-        msg = f'增加女友上限需要消耗{SHANGXIAN_NUM}金币，您的金币不足哦'
+    if current_score < SHANGXIAN_NUM * (1+houseadd):
+        msg = f'以您目前的上限，增加女友上限需要消耗{round(SHANGXIAN_NUM * (1+houseadd))}金币，您的金币不足哦'
         await bot.send(ev, msg, at_sender=True)
         return
     else:
@@ -2382,12 +2384,12 @@ async def add_warehouse(bot, ev: CQEvent):
             await bot.send(ev, msg, at_sender=True)
             return
         duel._add_warehouse(gid, uid, 1)
-        score_counter._reduce_score(gid, uid, SHANGXIAN_NUM)
-        score_counter._reduce_prestige(gid, uid, SHANGXIAN_SW)
-        last_score = current_score-SHANGXIAN_NUM
+        score_counter._reduce_score(gid, uid, SHANGXIAN_NUM * (1+houseadd))
+        score_counter._reduce_prestige(gid, uid, SHANGXIAN_SW * (1+houseadd))
         myhouse = get_girlnum_buy(gid, uid)
-        msg = f'您消耗了{SHANGXIAN_NUM}金币，{SHANGXIAN_SW}声望，增加了1个女友上限，目前的女友上限为{myhouse}名'
+        msg = f'您消耗了{round(SHANGXIAN_NUM * (1+houseadd))}金币，{round(SHANGXIAN_SW * (1+houseadd),0)}声望，增加了1个女友上限，目前的女友上限为{myhouse}名'
         await bot.send(ev, msg, at_sender=True)
+
         
 async def get_user_card(bot, group_id, user_id):
     mlist = await bot.get_group_member_list(group_id=group_id)
@@ -3465,7 +3467,7 @@ async def cheat_score(bot, ev: CQEvent):
         return
     if num < Zhuan_Low_LIMIT :
         await bot.finish(ev, f'低于转账最小限额！最少转出{Zhuan_Low_LIMIT}\n您今天还剩{Zhuan_DAILY_LIMIT - daily_zhuan_limiter.checks(guid)}金币可以转出！', at_sender=True)
-    if num > Zhuan_DAILY_LIMIT - daily_zhuan_limiter.checks(guid) :
+    if num > Zhuan_DAILY_LIMIT - daily_zhuan_limiter.checks(guid) and not priv.check_priv(ev, priv.SUPERUSER):
         await bot.finish(ev, f'超出转账最大限额！您今天还剩{Zhuan_DAILY_LIMIT - daily_zhuan_limiter.checks(guid)}金币可以转出！', at_sender=True)
     score_counter = ScoreCounter2()
     if duel._get_level(gid, id) == 0:
@@ -4967,15 +4969,18 @@ async def weaponchange2(bot, ev: CQEvent):
     msg = f'已启用自定义武器，弹匣量为{n}'
     await bot.send(ev, msg, at_sender=True)
     
-@sv.on_fullmatch('胜场修改')
+@sv.on_fullmatch('真步真步')
 async def chat_Win(bot, ev: CQEvent):
     gid = ev.group_id
     uid = ev.user_id
     duel = DuelCounter()
     if not priv.check_priv(ev, priv.SUPERUSER):
-        await bot.finish(ev, '您无权修改胜场！', at_sender=True)
-    duel._chat_Win(gid,uid)
-    await bot.finish(ev, '已将您的胜场修改为999！', at_sender=True)
+        return
+    n=10
+    while(n):
+        duel._add_Win(gid,uid)
+        n -= 1
+    return
     
 @sv.on_prefix(['送发情蛋糕'])
 async def give_gift(bot, ev: CQEvent):
@@ -5150,6 +5155,7 @@ async def buy_information(bot, ev: CQEvent):
     num6 = random.randint(-30,15)
     msg = f'现在神秘商店在出售这些物品\n'
     for gift in GIFT_DICT.keys():
+        random.seed(gid+uid+hour+day+month)
         if GIFT_DICT[gift] == num1:
             shop1 = gift
             msg += f'1：{shop1} {random.randint(1,10)*200}金币\n'
@@ -5195,7 +5201,7 @@ async def Shop(bot, ev: CQEvent):
     duel = DuelCounter()
     score_counter = ScoreCounter2()
     score = score_counter._get_score(gid, uid)
-    if not daily_SHOP_limiter.check(guid):
+    if not daily_SHOP_limiter.check(guid) and not priv.check_priv(ev, priv.SUPERUSER):
         await bot.finish(ev, '您今日购买神秘商店商品的次数已达上限喔，明天再来吧！', at_sender=True)
     nows = datetime.now(pytz.timezone('Asia/Shanghai'))
     month = nows.month
