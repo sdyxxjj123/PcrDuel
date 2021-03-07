@@ -3579,7 +3579,7 @@ async def reset_chara(bot, ev: CQEvent):
         queen2 = duel._search_queen2(gid,id)
         duel._delete_queen_owner(gid,queen)
         duel._delete_queen2_owner(gid,queen2)
-        duel._CHLEVEL_SET(gid,uid)
+        duel._CHLEVEL_SET(gid,id)
         duel._set_level(gid, id, 0)    
         await bot.finish(ev, f'已清空用户{id}的女友和贵族等级。', at_sender=True)
 
