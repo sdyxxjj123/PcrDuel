@@ -795,7 +795,7 @@ class ScoreCounter2:
                            PRIMARY KEY(GID, UID));''')
         except:
             raise Exception('创建表发生错误')
-
+            
     def _add_score(self, gid, uid, score):
         try:
             current_score = self._get_score(gid, uid)
@@ -804,7 +804,15 @@ class ScoreCounter2:
                                 VALUES (?,?,?)", (gid, uid, int(current_score + score)))
             conn.commit()
         except:
-            raise Exception('更新表发生错误')
+            current_score = self._get_score(gid, uid)
+            if (current_score + score) >= 9223372036854775806:
+                conn = self._connect()
+                conn.execute("INSERT OR REPLACE INTO SCORECOUNTER (GID,UID,SCORE) \
+                                VALUES (?,?,?)", (gid, uid, int(9223372036854775806)))
+                conn.commit()
+                raise Exception('金币超出上限！')
+            else:
+                raise Exception('更新表发生错误')
 
     def _reduce_score(self, gid, uid, score):
         try:
