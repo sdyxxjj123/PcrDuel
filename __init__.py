@@ -2406,43 +2406,51 @@ async def get_user_card(bot, group_id, user_id):
             return m['card'] if m['card']!='' else m['nickname']
     return str(user_id)
     
-@sv.on_fullmatch(['查询贵族', '贵族查询', '我的贵族'])
+@sv.on_prefix(['查询贵族', '贵族查询', '我的贵族'])
 async def inquire_noble(bot, ev: CQEvent):
     gid = ev.group_id
     uid = ev.user_id
     duel = DuelCounter()
+    try:
+        id = int(ev.message[0].data['qq'])
+    except:
+        id = ev.user_id
     score_counter = ScoreCounter2()
-    user_card = await get_user_card(bot,gid,uid)
-    if duel._get_level(gid, uid) == 0:
+    if duel._get_level(gid, id) == 0 and id == uid:
         msg = '您还未在本群创建过贵族，请发送 创建贵族 开始您的贵族之旅。'
         await bot.send(ev, msg, at_sender=True)
         return
-    level = duel._get_level(gid, uid)
+    elif duel._get_level(gid, id) == 0 and id != uid:
+        msg = '对方还未在本群创建过贵族。'
+        await bot.send(ev, msg, at_sender=True)
+        return
+    user_card = await get_user_card(bot,gid,id)
+    level = duel._get_level(gid, id)
     noblename = get_noblename(level)
-    girlnum = get_girlnum_buy(gid,uid)
-    score = score_counter._get_score(gid, uid)
+    girlnum = get_girlnum_buy(gid,id)
+    score = score_counter._get_score(gid, id)
     charalist = []
-    cidlist = duel._get_cards(gid, uid)
+    cidlist = duel._get_cards(gid, id)
     cidnum = len(cidlist)
-    Winnum = duel._get_WLCWIN(gid,uid)
-    Losenum = duel._get_WLCLOSE(gid,uid)
-    ADMITnum = duel._get_ADMIT(gid,uid)
+    Winnum = duel._get_WLCWIN(gid,id)
+    Losenum = duel._get_WLCLOSE(gid,id)
+    ADMITnum = duel._get_ADMIT(gid,id)
     if Losenum == 0:
         winprobability = 100
     else:
         winprobability = round((Winnum / (Winnum+Losenum))*100 ,2)
     if Winnum == 0:
         winprobability = 0
-    prestige = score_counter._get_prestige(gid,uid)
+    prestige = score_counter._get_prestige(gid,id)
     if prestige == None:
        prestige = 0
        partmsg = f'您的声望为{prestige}点'
     else:
        partmsg = f'您的声望为{prestige}点'
-    CHLEVEL = duel._get_CHLEVEL(gid,uid)
+    CHLEVEL = duel._get_CHLEVEL(gid,id)
     CHNAME = get_levelchname(CHLEVEL)
     nv_names=''
-    msgs = f'{user_card}您的贵族信息如下：\n'
+    msgs = f'{user_card}的贵族信息如下：\n'
     if cidnum == 0:
         msg = f'''
 ╔                          ╗
@@ -2472,7 +2480,7 @@ async def inquire_noble(bot, ev: CQEvent):
             charalist.append(chara.Chara(cid, 0, 0))
             c = chara.fromid(cid)
             shuzi_flag=shuzi_flag+1
-            nv_names=nv_names+c.name+' '
+            nv_names=nv_names+c.name+'|'
             if shuzi_flag==6:
                 nv_names=nv_names+'\n'
                 shuzi_flag=0
@@ -2527,8 +2535,8 @@ async def inquire_noble(bot, ev: CQEvent):
 '''
         #判断有无妻子
         q = 0
-        queen = duel._search_queen(gid,uid)
-        queen2 = duel._search_queen2(gid,uid)
+        queen = duel._search_queen(gid,id)
+        queen2 = duel._search_queen2(gid,id)
         if queen != 0:
             c = chara.fromid(queen)
             q = q + 1
@@ -2579,7 +2587,7 @@ async def inquire_noble(bot, ev: CQEvent):
     
 ╚                          ╝
 '''
-        if duel._get_BAN(gid,uid) == 1:
+        if duel._get_BAN(gid,id) == 1:
             msg += '\n<该账号被封停中,请联系管理员处理>'
         msg = msgs + msg
         data ={
@@ -2916,6 +2924,7 @@ async def nobleduel(bot, ev: CQEvent):
         if args[0] == '强制':
             gfid = 11
             if duel._get_gift_num(gid,id1,gfid)==0:
+                duel_judger.turn_off(ev.group_id)
                 await bot.finish(ev, '您并未持有强制决斗卡！')
             duel._reduce_gift(gid,id1,gfid)
             force = 1
@@ -2996,7 +3005,7 @@ async def nobleduel(bot, ev: CQEvent):
     duel_judger.turn_on_support(gid)
     x = n + 1
     deadnum = int(math.floor( random.uniform(1,x) ))
-    print ("死的位置是", deadnum)
+    print (f"群{gid}死的位置是", deadnum)
     duel_judger.set_deadnum(gid, deadnum)
     await asyncio.sleep(DUEL_SUPPORT_TIME)
     duel_judger.turn_off_support(gid)
